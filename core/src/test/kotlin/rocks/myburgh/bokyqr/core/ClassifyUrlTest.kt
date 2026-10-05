@@ -111,8 +111,17 @@ class ClassifyUrlTest {
     }
 
     @Test
-    fun `ipv6 literal hosts are openable`() {
-        assertEquals("[::1]", openable("http://[::1]:8080/x").hostAscii)
+    fun `a globally routable ipv6 literal host is openable`() {
+        assertEquals("[2001:db8::1]", openable("http://[2001:db8::1]:8080/x").hostAscii)
+    }
+
+    @Test
+    fun `an ipv6 loopback literal is display only, not openable`() {
+        // ::1 names this device. See ClassifyPrivateHostTest for the whole private-range rule.
+        assertEquals(
+            DisplayReason.LOCAL_OR_PRIVATE_HOST,
+            displayOnly("http://[::1]:8080/x").reason,
+        )
     }
 
     @Test

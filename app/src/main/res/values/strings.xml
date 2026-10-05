@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the strings a reviewer or translator is most likely to need are extracted here. The app is
+  not localised and most of its text is still inline in Kotlin; this file exists so the camera
+  permission flow (the one string set the store review and the OS both care about) has one home.
+-->
+<resources>
+    <string name="app_name">BokyQR</string>
+
+    <string name="camera_permission_rationale">BokyQR needs the camera to scan a QR code.</string>
+    <string name="camera_permission_grant">Grant camera permission</string>
+    <string name="camera_permission_permanently_denied_title">Camera permission is turned off</string>
+    <string name="camera_permission_permanently_denied_body">Android will not ask again. Open BokyQR\'s app settings and allow Camera, then come back here.</string>
+    <string name="camera_permission_open_settings">Open app settings</string>
+
+    <string name="gallery_unreadable">That image could not be read.</string>
+    <string name="gallery_no_code">No QR code was found in that image.</string>
+    <string name="gallery_disabled">Gallery import is turned off in Settings.</string>
+</resources>

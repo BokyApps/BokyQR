@@ -1,0 +1,1 @@
+Scan a QR code, see what it really is, and decide what to do with it.

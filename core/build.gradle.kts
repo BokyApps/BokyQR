@@ -8,11 +8,10 @@ kotlin {
     jvmToolchain(17)
 }
 
+// No coroutines dependency: :core is synchronous and pure, and keeping the module free of
+// kotlinx keeps its test run free of transitive resolution as well.
 dependencies {
-    implementation(libs.kotlinx.coroutines.core)
-
     testImplementation(libs.junit4)
-    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 tasks.withType<Test>().configureEach {

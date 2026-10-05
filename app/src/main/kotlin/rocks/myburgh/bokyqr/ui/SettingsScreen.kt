@@ -36,18 +36,24 @@ import rocks.myburgh.bokyqr.scan.ScanViewModel
  *
  * Keys are written straight into [Secrets], the encrypted store, and are never logged. The screen
  * also carries the limits and caveats each provider's terms require the user to see.
+ *
+ * The window is secure while this screen is up: it shows the user's own API keys, so it must not
+ * reach a screenshot, a screen recording or the recent-apps thumbnail.
  */
 @Composable
 fun SettingsScreen(viewModel: ScanViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
-    val secrets = remember { Secrets.get(context) }
+    val secrets = remember { Secrets.getOrNull(context) }
     var reveal by remember { mutableStateOf(false) }
-    var virusTotal by remember { mutableStateOf(secrets.virusTotalApiKey) }
-    var urlscan by remember { mutableStateOf(secrets.urlscanApiKey) }
-    var urlhaus by remember { mutableStateOf(secrets.urlhausAuthKey) }
+    var virusTotal by remember { mutableStateOf(secrets?.virusTotalApiKey.orEmpty()) }
+    var urlscan by remember { mutableStateOf(secrets?.urlscanApiKey.orEmpty()) }
+    var urlhaus by remember { mutableStateOf(secrets?.urlhausAuthKey.orEmpty()) }
     var gallery by remember { mutableStateOf(viewModel.galleryImportEnabled) }
 
     val transformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation()
+    val copy = rememberSecureCopier()
+
+    SecureWindow()
 
     Column(
         modifier = Modifier
@@ -77,13 +83,14 @@ fun SettingsScreen(viewModel: ScanViewModel, onBack: () -> Unit) {
             value = virusTotal,
             onValueChange = {
                 virusTotal = it
-                secrets.virusTotalApiKey = it
+                secrets?.virusTotalApiKey = it
             },
             label = { Text("VirusTotal API key") },
             singleLine = true,
             visualTransformation = transformation,
             modifier = Modifier.fillMaxWidth(),
         )
+        CopyKeyButton("Copy VirusTotal API key", "VirusTotal API key", virusTotal, copy)
         LinkButton("Get a VirusTotal API key", "https://www.virustotal.com/gui/my-apikey")
         Text(
             "The public VirusTotal API allows 500 requests per day and 4 requests per minute, and " +
@@ -95,13 +102,14 @@ fun SettingsScreen(viewModel: ScanViewModel, onBack: () -> Unit) {
             value = urlscan,
             onValueChange = {
                 urlscan = it
-                secrets.urlscanApiKey = it
+                secrets?.urlscanApiKey = it
             },
             label = { Text("urlscan.io API key") },
             singleLine = true,
             visualTransformation = transformation,
             modifier = Modifier.fillMaxWidth(),
         )
+        CopyKeyButton("Copy urlscan.io API key", "urlscan.io API key", urlscan, copy)
         LinkButton("urlscan.io API documentation", "https://urlscan.io/docs/api/")
         Text(
             "Scans are always submitted as unlisted, never public. Unlisted scans are still visible " +
@@ -113,13 +121,14 @@ fun SettingsScreen(viewModel: ScanViewModel, onBack: () -> Unit) {
             value = urlhaus,
             onValueChange = {
                 urlhaus = it
-                secrets.urlhausAuthKey = it
+                secrets?.urlhausAuthKey = it
             },
             label = { Text("URLhaus Auth-Key") },
             singleLine = true,
             visualTransformation = transformation,
             modifier = Modifier.fillMaxWidth(),
         )
+        CopyKeyButton("Copy URLhaus Auth-Key", "URLhaus Auth-Key", urlhaus, copy)
         LinkButton("URLhaus API documentation", "https://urlhaus.abuse.ch/api/")
         Text(
             "URLhaus is a known-malware lookup, not a full scan. It only says whether this exact URL " +
@@ -146,6 +155,22 @@ fun SettingsScreen(viewModel: ScanViewModel, onBack: () -> Unit) {
                 "default; when off, the gallery button is hidden and the picker never opens.",
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+/**
+ * Copies an API key to the clipboard as a sensitive clip, so the keyboard on the next app does not
+ * learn it and it does not turn up in clipboard history. Disabled when there is nothing to copy.
+ */
+@Composable
+private fun CopyKeyButton(
+    label: String,
+    clipLabel: String,
+    key: String,
+    copy: (String, String) -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        TextButton(onClick = { copy(clipLabel, key) }, enabled = key.isNotBlank()) { Text(label) }
     }
 }
 

@@ -6,7 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import rocks.myburgh.bokyqr.core.PayloadPolicy
 import rocks.myburgh.bokyqr.core.ScanDecision
 import rocks.myburgh.bokyqr.data.Secrets
@@ -39,8 +43,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private val app: Application = application
     private val settings = Settings(app)
 
-    private val secrets: Secrets
-        get() = Secrets.get(app)
+    /**
+     * The in-flight provider call for each provider, if any. A tap on a provider that is already
+     * Loading is ignored rather than starting a second job: two concurrent VirusTotal polls would
+     * double the request count against a 4-per-minute limit and make both of them fail.
+     */
+    private val providerJobs = mutableMapOf<Settings.Provider, Job>()
 
     var decision: ScanDecision? by mutableStateOf(null)
         private set
@@ -59,8 +67,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     var urlhausState: ProviderState by mutableStateOf(ProviderState.Idle)
         private set
 
-    fun onPayload(raw: String) {
+    /**
+     * Called from the camera analyzer's executor thread, from a gallery coroutine, and from the
+     * provider coroutines. Every one of those sets [decision] and the provider states, which are
+     * Compose state, so this hops to the main thread and does nothing else there.
+     */
+    fun onPayload(raw: String) = viewModelScope.launch {
         decision = PayloadPolicy.classify(raw)
+        cancelProviders()
         virusTotalState = ProviderState.Idle
         urlscanState = ProviderState.Idle
         urlhausState = ProviderState.Idle
@@ -69,6 +83,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissSheet() {
         sheetVisible = false
+        cancelProviders()
+    }
+
+    /** Abandons any running lookup. The sheet is gone, so nobody is waiting for its answer. */
+    private fun cancelProviders() {
+        providerJobs.values.forEach { it.cancel() }
+        providerJobs.clear()
     }
 
     fun showNotice(message: String) {
@@ -100,48 +121,57 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     // -- Providers ---------------------------------------------------------------------------
 
     fun runVirusTotal(url: String) = runProvider(
+        provider = Settings.Provider.VIRUS_TOTAL,
         setState = { virusTotalState = it },
         missingKey = "VirusTotal needs your own API key. Add it in Settings; the app ships no key.",
         block = { key -> VirusTotalClient.lookup(url, key) },
-        keyOf = { secrets.virusTotalApiKey },
+        keyOf = { Secrets.getOrNull(app)?.virusTotalApiKey.orEmpty() },
     )
 
     fun runUrlscan(url: String) = runProvider(
+        provider = Settings.Provider.URLSCAN,
         setState = { urlscanState = it },
         missingKey = "urlscan.io needs your own API key. Add it in Settings; the app ships no key.",
         block = { key -> UrlscanClient.submit(url, key) },
-        keyOf = { secrets.urlscanApiKey },
+        keyOf = { Secrets.getOrNull(app)?.urlscanApiKey.orEmpty() },
     )
 
     fun runUrlhaus(url: String) = runProvider(
+        provider = Settings.Provider.URLHAUS,
         setState = { urlhausState = it },
         missingKey = "URLhaus needs your own Auth-Key. Add it in Settings; the app ships no key. " +
             "Without a key the app will not call the network.",
         block = { key -> UrlhausClient.lookup(url, key) },
-        keyOf = { secrets.urlhausAuthKey },
+        keyOf = { Secrets.getOrNull(app)?.urlhausAuthKey.orEmpty() },
     )
 
     private fun runProvider(
+        provider: Settings.Provider,
         setState: (ProviderState) -> Unit,
         missingKey: String,
         block: suspend (String) -> ProviderOutcome,
         keyOf: () -> String,
     ) {
-        val key = keyOf()
-        if (key.isBlank()) {
-            setState(ProviderState.Failed(missingKey))
-            return
-        }
+        // Ignore a second tap while this provider is already running.
+        if (providerJobs[provider]?.isActive == true) return
         setState(ProviderState.Loading)
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             val next = try {
-                ProviderState.Done(block(key))
+                // The first read of a key opens the Android Keystore and reads an
+                // EncryptedSharedPreferences file. That is disk and crypto work and it has no
+                // business happening on the main thread.
+                val key = withContext(Dispatchers.IO) { keyOf() }
+                if (key.isBlank()) ProviderState.Failed(missingKey) else ProviderState.Done(block(key))
             } catch (e: ProviderException) {
                 ProviderState.Failed(e.message ?: "The provider rejected the request.")
+            } catch (_: CancellationException) {
+                // The sheet was dismissed or a new code was scanned; leave the state alone.
+                return@launch
             } catch (_: Exception) {
                 ProviderState.Failed("The provider could not be reached. Check the connection.")
             }
             setState(next)
         }
+        providerJobs[provider] = job
     }
 }
