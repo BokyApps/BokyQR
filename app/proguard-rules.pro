@@ -23,3 +23,11 @@
 -dontwarn com.google.errorprone.annotations.RestrictedApi
 -dontwarn javax.annotation.Nullable
 -dontwarn javax.annotation.concurrent.GuardedBy
+
+
+# play flavor deliberately excludes com.google.android.datatransport:transport-backend-cct
+# (ClearCut uploader). ML Kit still references CCTDestination from that module in a few
+# internal constructors; at runtime those paths are never taken because the backend is
+# absent and no ClearCut transport is registered. R8 full-mode still wants the class on
+# the classpath or a -dontwarn. Keep this scoped to the one class R8 named.
+-dontwarn com.google.android.datatransport.cct.CCTDestination

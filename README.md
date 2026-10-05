@@ -262,14 +262,14 @@ done
 # row for each .so in the APK Analyzer output.
 ```
 
-As of the commit that introduced this section, ML Kit 17.3.0 is 16 KB ready: the checks above pass
-on all four ABIs of a `playDebug` APK, with every `LOAD` segment at `0x4000`. Re-run them after
-any ML Kit or CameraX bump, and prefer
-[Play Console > Setup > App bundle explorer](https://play.google.com/console) as the final word,
+Zip entry alignment passes for the play debug APK. ELF LOAD alignment on **arm64-v8a** and **x86_64** `libbarhopper_v3.so` is 0x4000 (good). **armeabi-v7a** and **x86** barhopper are still 0x1000 — see the ELF steps below before uploading.
+
 since it reports the alignment Play itself will enforce.
 
 The `fdroid` flavor ships no native code of its own beyond what CameraX and Compose contribute, and
 no ML Kit `.so` at all.
+
+
 
 ## Privacy and store metadata
 
