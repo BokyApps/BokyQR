@@ -5,10 +5,10 @@ This is the answer to the Play Console **Data safety** form for BokyQR
 a public document: the form asks a fixed sequence of questions and the answers below are given in
 that order, with the reasoning where the answer is not obvious.
 
-The matching plain-language policy is [PRIVACY.md](PRIVACY.md).
+The matching plain-language policy is [PRIVACY.md](PRIVACY.md) (canonical hosted copy: https://bokyapps.github.io/privacy/).
 
-**Before submitting:** Play requires a hosted privacy-policy URL in the listing. BokyQR does not
-have one yet — see the note at the end. Do not enter a URL that does not resolve.
+**Before submitting:** Play requires a hosted privacy-policy URL in the listing. Use the
+canonical URL: **https://bokyapps.github.io/privacy/**
 
 ---
 
@@ -118,7 +118,7 @@ State these in the listing's Data safety section, or wherever Play asks for deta
 
 ## 12. Before you submit
 
-- [ ] PRIVACY.md is hosted at a public, stable URL and that URL is in the listing.
+- [x] Privacy policy hosted at https://bokyapps.github.io/privacy/ — paste that URL into the listing.
 - [ ] The `play` flavor is uploaded, never `fdroid`. The F-Droid build is ZXing-only and free of
       Google libraries; the Play build bundles ML Kit's on-device barcode model.
 - [ ] `android:hasFragileUserData="false"` is **not** claimed — the app has no such dependency.

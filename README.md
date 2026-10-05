@@ -279,8 +279,8 @@ no ML Kit `.so` at all.
   the form asks for them.
 * [`fastlane/metadata/android/en-US/`](fastlane/metadata/android/en-US) — F-Droid listing.
 
-Both privacy documents deliberately do **not** claim a published privacy-policy URL: no store
-listing exists for this app. One must be hosted and linked from the listing before submission.
+Canonical hosted privacy policy (Play Console / F-Droid): **https://bokyapps.github.io/privacy/**
+Keep [`PRIVACY.md`](PRIVACY.md) aligned with that page.
 
 ## License
 

@@ -44,6 +44,8 @@ No analytics. No advertising. No crash reporter. No identifiers of any kind.
 
 PRIVACY
 
+Full policy: https://bokyapps.github.io/privacy/
+
 Camera frames are decoded on the device and never stored or uploaded. Gallery import uses the
 Android photo picker only: no photo or media permission is requested, and the chosen image is
 decoded in memory and released.
