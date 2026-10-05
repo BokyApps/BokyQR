@@ -22,11 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import rocks.myburgh.bokyqr.core.DisplayReason
@@ -43,7 +39,11 @@ import rocks.myburgh.bokyqr.scan.ScanViewModel
  * The result sheet. It shows what `:core` decided and offers only the actions that decision allows.
  *
  * Nothing here launches on its own: every provider call and every browser hand-off is a user tap,
- * and a flagged VirusTotal result adds a second confirmation that names the verdict counts.
+ * and a bad reputation verdict from either VirusTotal or URLhaus adds a second confirmation that
+ * names the source that produced it.
+ *
+ * The window is marked secure while this sheet is up: it is showing the scanned payload and any
+ * verdict, and neither belongs in the recent-apps thumbnail or a screenshot.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,7 +55,9 @@ fun ResultSheet(
     val decision = viewModel.decision ?: return
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val copy = rememberSecureCopier()
+
+    SecureWindow()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -68,9 +70,9 @@ fun ResultSheet(
         ) {
             when (decision) {
                 is ScanDecision.OpenableUrl ->
-                    OpenableUrlBody(decision, viewModel, context, clipboard, onOpenSettings)
-                is ScanDecision.Passkey -> PasskeyBody(decision, context, clipboard)
-                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, clipboard)
+                    OpenableUrlBody(decision, viewModel, context, copy, onOpenSettings)
+                is ScanDecision.Passkey -> PasskeyBody(decision, context, copy)
+                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, copy)
             }
         }
     }
@@ -81,7 +83,7 @@ private fun OpenableUrlBody(
     url: ScanDecision.OpenableUrl,
     viewModel: ScanViewModel,
     context: Context,
-    clipboard: ClipboardManager,
+    copy: (String, String) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     var showOpenConfirm by remember { mutableStateOf(false) }
@@ -104,8 +106,29 @@ private fun OpenableUrlBody(
 
     val virusTotal = (viewModel.virusTotalState as? ProviderState.Done)
         ?.outcome as? ProviderOutcome.VirusTotal
-    val confirmNeeded = virusTotal != null &&
-        confirmBeforeOpen(virusTotal.malicious, virusTotal.suspicious)
+    val urlhaus = (viewModel.urlhausState as? ProviderState.Done)
+        ?.outcome as? ProviderOutcome.Urlhaus
+
+    // A second tap is required when either provider the user actually ran says this URL is bad.
+    // URLhaus counts the same as VirusTotal: it is a shorter list, but every name on it is a URL
+    // someone has already reported as malware delivery, and a single tap should not reach one.
+    val warning = when {
+        virusTotal != null && confirmBeforeOpen(virusTotal.malicious, virusTotal.suspicious) ->
+            OpenWarning(
+                title = "VirusTotal flagged this URL",
+                body = "VirusTotal reports ${virusTotal.malicious} malicious and " +
+                    "${virusTotal.suspicious} suspicious verdicts for this URL. " +
+                    "Open it in your browser anyway?",
+            )
+        urlhaus?.listed == true ->
+            OpenWarning(
+                title = "URLhaus lists this URL",
+                body = "URLhaus lists this exact URL in its malware blocklist" +
+                    (urlhaus.threat?.let { " as $it" } ?: "") +
+                    ". Open it in your browser anyway?",
+            )
+        else -> null
+    }
 
     val open: () -> Unit = {
         if (!Handoff.openInBrowser(context, url.url)) {
@@ -114,7 +137,7 @@ private fun OpenableUrlBody(
     }
 
     Button(
-        onClick = { if (confirmNeeded) showOpenConfirm = true else open() },
+        onClick = { if (warning != null) showOpenConfirm = true else open() },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Open in browser")
@@ -137,7 +160,13 @@ private fun OpenableUrlBody(
         if (viewModel.needsDisclosure(provider)) pendingDisclosure = provider else runProvider(provider)
     }
 
-    OutlinedButton(onClick = { tap(Settings.Provider.VIRUS_TOTAL) }, modifier = Modifier.fillMaxWidth()) {
+    // A provider already Loading disables its button: a second tap would be a second concurrent
+    // lookup, and against VirusTotal's four-per-minute limit that is how a lookup gets a 429.
+    OutlinedButton(
+        onClick = { tap(Settings.Provider.VIRUS_TOTAL) },
+        enabled = viewModel.virusTotalState !is ProviderState.Loading,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Text("Check with VirusTotal")
     }
     ProviderStatusLine(
@@ -149,7 +178,11 @@ private fun OpenableUrlBody(
             "${outcome.harmless} harmless, ${outcome.undetected} undetected."
     }
 
-    OutlinedButton(onClick = { tap(Settings.Provider.URLSCAN) }, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(
+        onClick = { tap(Settings.Provider.URLSCAN) },
+        enabled = viewModel.urlscanState !is ProviderState.Loading,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Text("Submit to urlscan.io")
     }
     ProviderStatusLine(viewModel.urlscanState) { outcome ->
@@ -160,14 +193,14 @@ private fun OpenableUrlBody(
             "urlscan.io: submitted as unlisted. Unlisted scans are still visible to urlscan Pro researchers."
         }
     }
-    val urlscan = (viewModel.urlscanState as? ProviderState.Done)
+    val urlscanOutcome = (viewModel.urlscanState as? ProviderState.Done)
         ?.outcome as? ProviderOutcome.Urlscan
 
     // Belt and braces. UrlscanClient already rebuilds this URL from a validated uuid, but this
     // button hands a network-supplied string to ACTION_VIEW, so it re-checks the two things that
     // matter before it does: PayloadPolicy must call it an openable http(s) URL, and the host
     // must be urlscan.io itself.
-    val urlscanLink: ScanDecision.OpenableUrl? = urlscan?.resultUrl
+    val urlscanLink: ScanDecision.OpenableUrl? = urlscanOutcome?.resultUrl
         ?.takeIf { it.isNotBlank() }
         ?.let { PayloadPolicy.classify(it) as? ScanDecision.OpenableUrl }
         ?.takeIf { it.hostAscii == "urlscan.io" }
@@ -181,14 +214,18 @@ private fun OpenableUrlBody(
         }
         // A result was reported but we will not offer to open it. Say so rather than silently
         // dropping the button, so the scan still reads as complete.
-        urlscan != null && urlscan.resultUrl.isNotBlank() -> Text(
+        urlscanOutcome != null && urlscanOutcome.resultUrl.isNotBlank() -> Text(
             "urlscan.io returned a result link this app will not open. The scan was submitted as " +
                 "unlisted; copy the scan id from the status line and look it up on urlscan.io yourself.",
             style = MaterialTheme.typography.bodySmall,
         )
     }
 
-    OutlinedButton(onClick = { tap(Settings.Provider.URLHAUS) }, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(
+        onClick = { tap(Settings.Provider.URLHAUS) },
+        enabled = viewModel.urlhausState !is ProviderState.Loading,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Text("Look up in URLhaus")
     }
     ProviderStatusLine(viewModel.urlhausState) { outcome ->
@@ -203,7 +240,7 @@ private fun OpenableUrlBody(
     }
 
     OutlinedButton(
-        onClick = { clipboard.setText(AnnotatedString(url.url)) },
+        onClick = { copy("Scanned URL", url.url) },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Copy URL")
@@ -231,17 +268,11 @@ private fun OpenableUrlBody(
         )
     }
 
-    if (showOpenConfirm && virusTotal != null) {
+    if (showOpenConfirm && warning != null) {
         AlertDialog(
             onDismissRequest = { showOpenConfirm = false },
-            title = { Text("VirusTotal flagged this URL") },
-            text = {
-                Text(
-                    "VirusTotal reports ${virusTotal.malicious} malicious and " +
-                        "${virusTotal.suspicious} suspicious verdicts for this URL. " +
-                        "Open it in your browser anyway?",
-                )
-            },
+            title = { Text(warning.title) },
+            text = { Text(warning.body) },
             confirmButton = {
                 TextButton(onClick = {
                     showOpenConfirm = false
@@ -254,6 +285,9 @@ private fun OpenableUrlBody(
         )
     }
 }
+
+/** What the user must be told, and by whom, before "Open in browser" opens a flagged URL. */
+private class OpenWarning(val title: String, val body: String)
 
 @Composable
 private fun ProviderStatusLine(
@@ -277,7 +311,7 @@ private fun ProviderStatusLine(
 private fun PasskeyBody(
     decision: ScanDecision.Passkey,
     context: Context,
-    clipboard: ClipboardManager,
+    copy: (String, String) -> Unit,
 ) {
     var handoffFailed by remember { mutableStateOf(false) }
 
@@ -305,7 +339,7 @@ private fun PasskeyBody(
     }
 
     OutlinedButton(
-        onClick = { clipboard.setText(AnnotatedString(decision.fidoUri)) },
+        onClick = { copy("Passkey URI", decision.fidoUri) },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Copy")
@@ -315,13 +349,13 @@ private fun PasskeyBody(
 @Composable
 private fun DisplayOnlyBody(
     decision: ScanDecision.DisplayOnly,
-    clipboard: ClipboardManager,
+    copy: (String, String) -> Unit,
 ) {
     Text("Text", style = MaterialTheme.typography.titleMedium)
     Text(decision.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
     Text(reasonText(decision.reason), style = MaterialTheme.typography.bodySmall)
     OutlinedButton(
-        onClick = { clipboard.setText(AnnotatedString(decision.text)) },
+        onClick = { copy("Scanned text", decision.text) },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Copy")
@@ -338,6 +372,10 @@ private fun reasonText(reason: DisplayReason): String = when (reason) {
     DisplayReason.USERINFO -> "Rejected: carries a user:password@ part."
     DisplayReason.UNSAFE_HOST -> "Rejected: the host is not a usable name."
     DisplayReason.MALFORMED -> "Not a URL. Shown as text only."
+    DisplayReason.LOCAL_OR_PRIVATE_HOST ->
+        "Not opened: this points at this device or the network it is on (localhost, a private or " +
+            "link-local address, or a cloud metadata address), not at a public website. The text " +
+            "is still here to copy."
 }
 
 private fun disclosureTitle(provider: Settings.Provider): String = when (provider) {

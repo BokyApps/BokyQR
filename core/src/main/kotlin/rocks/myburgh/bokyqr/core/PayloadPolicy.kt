@@ -83,6 +83,15 @@ object PayloadPolicy {
 
         val hostAscii = asciiHost(host)
             ?: return ScanDecision.DisplayOnly(raw, DisplayReason.UNSAFE_HOST)
+        if (isLocalOrPrivateHost(hostAscii)) {
+            // A QR code that points at localhost, at a private range, at a link-local address or
+            // at a cloud metadata endpoint is aimed at the device or the network it sits on, not
+            // at a website. Opening it can hit a router admin page, a printer, a local dev server
+            // or the cloud metadata service, and a provider lookup would happily report "harmless".
+            // Refused as DisplayOnly: the text (and its copy button) is still there, so the user can
+            // do whatever they actually meant by hand.
+            return ScanDecision.DisplayOnly(raw, DisplayReason.LOCAL_OR_PRIVATE_HOST)
+        }
         val hostUnicode = unicodeHost(hostAscii)
 
         return ScanDecision.OpenableUrl(url = trimmed, hostUnicode = hostUnicode, hostAscii = hostAscii)
@@ -110,6 +119,88 @@ object PayloadPolicy {
             return null
         }
         return if (ASCII_HOST.matches(ascii)) ascii else null
+    }
+
+    /**
+     * Whether [hostAscii] names something on this device or on the network it sits on, rather
+     * than a public site.
+     *
+     * Covers `localhost` and `*.localhost`, single-label intranet names (`http://nas/`), the IPv4
+     * loopback / private / CGNAT / link-local / IETF-reserved ranges including the cloud metadata
+     * address 169.254.169.254, and the IPv6 equivalents (`::1`, `fc00::/7`, `fe80::/10`, and
+     * IPv4-mapped forms of any of the above).
+     *
+     * Deliberately conservative about ranges that only *sound* private: a globally routable address
+     * in, say, 203.0.113.0/24 is not private and is still openable. What is refused is what can
+     * only ever be reached from behind the user's own router.
+     */
+    internal fun isLocalOrPrivateHost(hostAscii: String): Boolean {
+        if (hostAscii.startsWith("[")) {
+            return isLocalOrPrivateIpv6(hostAscii.trim('[', ']'))
+        }
+        val octets = ipv4Octets(hostAscii)
+        // Not an address literal, so it is a name. `localhost` and everything under it are
+        // resolved by the device itself, and a name with no dot in it can only be resolved by the
+        // user's own DNS server or mDNS, i.e. on the network they are standing in.
+        if (octets == null) {
+            return hostAscii == "localhost" ||
+                hostAscii.endsWith(".localhost") || // RFC 6762: always the device itself
+                hostAscii.endsWith(".local") || // RFC 6762: mDNS, link-local multicast only
+                hostAscii.endsWith(".home.arpa") || // RFC 8375: home networks only
+                !hostAscii.contains('.') // a single label can only resolve on the local network
+        }
+        return when {
+            octets[0] == 0 -> true // "this network" / unspecified
+            octets[0] == 10 -> true // 10.0.0.0/8 private
+            octets[0] == 127 -> true // 127.0.0.0/8 loopback
+            octets[0] == 100 && octets[1] in 64..127 -> true // 100.64.0.0/10 CGNAT, RFC 6598
+            octets[0] == 169 && octets[1] == 254 -> true // link-local, incl. 169.254.169.254
+            octets[0] == 172 && octets[1] in 16..31 -> true // 172.16.0.0/12 private
+            octets[0] == 192 && octets[1] == 168 -> true // 192.168.0.0/16 private
+            octets[0] == 192 && octets[1] == 0 && octets[2] == 0 -> true // 192.0.0.0/24 IETF
+            octets[0] >= 224 -> true // multicast, reserved, broadcast
+            else -> false
+        }
+    }
+
+    /** Four decimal octets, or null when [host] is not a dotted-quad IPv4 literal. */
+    private fun ipv4Octets(host: String): IntArray? {
+        val parts = host.split('.')
+        if (parts.size != 4) return null
+        val octets = IntArray(4)
+        for (i in 0 until 4) {
+            val part = parts[i]
+            // "010" and "0x7f" style octets are not addresses; refuse to guess at them.
+            if (part.isEmpty() || part.length > 3 || !part.all { it.isDigit() }) return null
+            octets[i] = part.toInt()
+            if (octets[i] > 255) return null
+        }
+        return octets
+    }
+
+    private fun isLocalOrPrivateIpv6(host: String): Boolean {
+        val literal = host.substringBefore('%').lowercase() // drop any zone index
+        if (literal == "::" || literal == "::1") return true
+        // IPv4-mapped and IPv4-compatible forms carry an embedded IPv4 address; judge that.
+        val embedded = ipv4InIpv6(literal)
+        if (embedded != null) return isLocalOrPrivateHost(embedded)
+        val head = literal.substringBefore(':').padStart(4, '0')
+        val value = head.toIntOrNull(16) ?: return false
+        val topByte = value shr 8
+        return when {
+            // fc00::/7 unique local.
+            topByte and 0xFE == 0xFC -> true
+            // fe80::/10 link local: 1111111010, i.e. a 0xFE byte followed by an 8 or a 9.
+            topByte == 0xFE && (value shr 4 and 0x0F) in 0x8..0x9 -> true
+            else -> false
+        }
+    }
+
+    /** `::ffff:127.0.0.1` style tails, normalised back to a dotted quad. */
+    private fun ipv4InIpv6(literal: String): String? {
+        val tail = literal.substringAfterLast(':')
+        if (!tail.contains('.')) return null
+        return ipv4Octets(tail)?.joinToString(".")
     }
 
     /**

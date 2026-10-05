@@ -258,3 +258,41 @@ val verifyPlayClasspath = tasks.register("verifyPlayClasspath") {
 tasks.matching { it.name == "prePlayDebugBuild" || it.name == "prePlayReleaseBuild" }
     .configureEach { dependsOn(verifyPlayClasspath) }
 tasks.named("check") { dependsOn(verifyPlayClasspath) }
+
+// Trusting user-installed CAs makes an APK trivial to intercept and impersonate, which is exactly
+// what the debug build needs from a proxy and exactly what must never reach a store. Debug gets
+// its own network_security_config.xml under src/debug; the one under src/main is what ships.
+//
+// This asserts the source-level half of that separation, which is the half that can be checked
+// without unpacking and diffing a built artifact: a user anchor in the shipped file is a build
+// failure, not a review finding. It is deliberately about src/main only — the debug override is
+// supposed to trust user CAs. The packaging half (that the release AAB contains src/main's file
+// and not src/debug's) is a packaging concern AGP already owns, since src/debug resources never
+// merge into a release variant.
+val verifyReleaseTrustAnchors = tasks.register("verifyReleaseTrustAnchors") {
+    group = "verification"
+    description = "Fails if the shipped network security config trusts user-installed CAs or permits cleartext."
+    val shipped = file("src/main/res/xml/network_security_config.xml")
+    doLast {
+        if (!shipped.isFile) throw GradleException("Missing $shipped; the app has no trust policy to check.")
+        val xml = shipped.readText()
+        val offenders = buildList {
+            if (xml.contains("src=\"user\"")) add("<certificates src=\"user\"> (debug-only trust anchor)")
+            if (Regex("""cleartextTrafficPermitted\s*=\s*"true"""").containsMatchIn(xml)) {
+                add("cleartextTrafficPermitted=\"true\"")
+            }
+        }
+        if (offenders.isNotEmpty()) {
+            throw GradleException(
+                "src/main/res/xml/network_security_config.xml must trust system CAs only:\n  " +
+                    offenders.joinToString("\n  ") +
+                    "\n  Debug builds have their own override in src/debug/res/xml; never widen the " +
+                    "one that ships.",
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "preFdroidReleaseBuild" || it.name == "prePlayReleaseBuild" }
+    .configureEach { dependsOn(verifyReleaseTrustAnchors) }
+tasks.named("check") { dependsOn(verifyReleaseTrustAnchors) }

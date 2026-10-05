@@ -63,6 +63,13 @@ enum class DisplayReason {
     /** No parseable host, or a host that is not a plausible DNS name / IP literal. */
     UNSAFE_HOST,
 
+    /**
+     * The host names this device or its own network: `localhost`, a single-label intranet name,
+     * an RFC 1918 / CGNAT / link-local IPv4 address (including the cloud metadata endpoint
+     * 169.254.169.254), or the IPv6 equivalents. Opened only by hand, never by the app.
+     */
+    LOCAL_OR_PRIVATE_HOST,
+
     /** Does not parse as a URI at all. */
     MALFORMED,
 }

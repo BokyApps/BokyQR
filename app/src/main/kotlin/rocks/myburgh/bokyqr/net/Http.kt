@@ -21,7 +21,19 @@ import java.nio.charset.StandardCharsets
  * this app buffer an unbounded amount of memory, and an over-long body is refused outright
  * rather than truncated into a half-valid JSON document.
  */
-internal class HttpResult(val code: Int, val body: String)
+/**
+ * [retryAfterMillis] is the server's `Retry-After` header in delta-seconds form, or null when the
+ * header was absent or used the HTTP-date form (which only this app's own clock can resolve, so
+ * it is ignored rather than guessed at).
+ */
+internal class HttpResult(
+    val code: Int,
+    val body: String,
+    val retryAfterMillis: Long? = null,
+)
+
+/** True for a 3xx. `Http` never follows redirects, so a client must handle these explicitly. */
+internal val HttpResult.isRedirect: Boolean get() = code in 300..399
 
 internal object Http {
 
@@ -80,11 +92,21 @@ internal object Http {
         try {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            HttpResult(code, readCapped(stream))
+            HttpResult(code, readCapped(stream), retryAfterMillis(connection))
         } finally {
             connection.disconnect()
         }
     }
+
+    /**
+     * Reads `Retry-After` as a delta in seconds. Never logged, never throws: a provider that
+     * sends something unexpected simply gets the app's own default cadence instead.
+     */
+    private fun retryAfterMillis(connection: HttpURLConnection): Long? =
+        runCatching { connection.getHeaderField("Retry-After")?.trim()?.toLongOrNull() }
+            .getOrNull()
+            ?.takeIf { it >= 0 }
+            ?.times(1_000L)
 
     /**
      * Reads [stream] as UTF-8, refusing to buffer more than [MAX_BODY_BYTES].

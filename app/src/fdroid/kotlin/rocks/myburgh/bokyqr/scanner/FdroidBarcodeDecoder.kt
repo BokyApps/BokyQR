@@ -19,48 +19,81 @@ fun createBarcodeDecoder(context: Context): BarcodeDecoder = ZxingBarcodeDecoder
 
 class ZxingBarcodeDecoder : BarcodeDecoder {
 
-    private val reader = QRCodeReader()
+    /**
+     * A [com.google.zxing.Reader] is stateful and `reset()` is part of its contract: it caches the
+     * binarizer's bit matrix between calls. One reader per calling thread, each guarded, so the
+     * analyzer executor and the gallery decode can never interleave inside one instance.
+     */
+    private val frameReader = QRCodeReader()
+    private val frameLock = Any()
+    private val stillReader = QRCodeReader()
+    private val stillLock = Any()
     private val hints: Map<DecodeHintType, Any> = mapOf(DecodeHintType.TRY_HARDER to true)
 
-    override fun decodeFrame(image: ImageProxy): String? = decode(yuvLuminance(image))
+    override fun decodeFrame(image: ImageProxy): String? =
+        decode(yuvLuminance(image), frameReader, frameLock)
 
     override fun decodeStill(bitmap: Bitmap): String? {
         val width = bitmap.width
         val height = bitmap.height
         if (width <= 0 || height <= 0) return null
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        return decode(RGBLuminanceSource(width, height, pixels))
+        return decode(
+            runCatching { RGBLuminanceSource(width, height, IntArray(width * height).also {
+                bitmap.getPixels(it, 0, width, 0, 0, width, height)
+            }) }.getOrNull(),
+            stillReader,
+            stillLock,
+        )
     }
 
-    private fun decode(source: LuminanceSource): String? = try {
-        reader.decode(BinaryBitmap(HybridBinarizer(source)), hints).text
-    } catch (_: Exception) {
-        null
+    private fun decode(source: LuminanceSource?, reader: QRCodeReader, lock: Any): String? {
+        if (source == null) return null
+        synchronized(lock) {
+            return try {
+                reader.decode(BinaryBitmap(HybridBinarizer(source)), hints).text
+            } catch (_: Exception) {
+                null
+            } finally {
+                // Required by the Reader contract and cheap; without it a failed decode leaves a
+                // stale bit matrix behind that the next attempt decodes against.
+                runCatching { reader.reset() }
+            }
+        }
     }
 
-    /** Copies the Y plane into a tightly packed array and rotates it upright for the decoder. */
-    private fun yuvLuminance(image: ImageProxy): LuminanceSource {
+    /**
+     * Copies the Y plane into a tightly packed array and rotates it upright for the decoder.
+     *
+     * Returns null for any frame this cannot walk safely. `rowStride` and `pixelStride` come from
+     * the device's camera HAL and are not guaranteed to describe the buffer as tightly as this
+     * loop assumes, and the plane's `limit()` is not guaranteed to cover `height * rowStride`, so
+     * every read is bounded rather than trusted. A short or oddly strided plane is "no code in
+     * this frame", which is exactly what an undecodable frame already means.
+     */
+    private fun yuvLuminance(image: ImageProxy): LuminanceSource? = runCatching {
         val plane = image.planes[0]
         val buffer = plane.buffer
         val rowStride = plane.rowStride
         val pixelStride = plane.pixelStride
         val width = image.width
         val height = image.height
+        if (width <= 0 || height <= 0 || rowStride <= 0 || pixelStride <= 0) return null
         val gray = ByteArray(width * height)
+        val limit = buffer.limit()
         var index = 0
         for (y in 0 until height) {
-            var offset = y * rowStride
+            var offset = y.toLong() * rowStride
             for (x in 0 until width) {
-                gray[index++] = buffer.get(offset)
+                if (offset < 0 || offset >= limit) return null
+                gray[index++] = buffer.get(offset.toInt())
                 offset += pixelStride
             }
         }
         val rotated = rotate(gray, width, height, image.imageInfo.rotationDegrees)
-        return PlanarYUVLuminanceSource(
+        PlanarYUVLuminanceSource(
             rotated.data, rotated.width, rotated.height, 0, 0, rotated.width, rotated.height, false,
         )
-    }
+    }.getOrNull()
 
     private class Gray(val data: ByteArray, val width: Int, val height: Int)
 

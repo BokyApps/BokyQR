@@ -16,8 +16,9 @@ import androidx.security.crypto.MasterKey
  * `backup_rules.xml`, and `android:allowBackup` is false, so a key never leaves the device through
  * a backup. Nothing here is ever logged.
  *
- * Constructing this touches the Keystore and is deliberately lazy: it must not happen in
- * `Application.onCreate`.
+ * Constructing this touches the Keystore and is deliberately lazy: it must not happen on the main
+ * thread in `Application.onCreate`. `BokyApp` warms it on `Dispatchers.IO` at startup, and every
+ * read happens inside a provider coroutine on IO, so the first read is never a UI-thread stall.
  */
 class Secrets private constructor(private val prefs: SharedPreferences) {
 
@@ -41,6 +42,20 @@ class Secrets private constructor(private val prefs: SharedPreferences) {
 
         @Volatile
         private var instance: Secrets? = null
+
+        /**
+         * Lazily creates the encrypted store. Keystore work happens here, never on the main thread.
+         *
+         * A Keystore that refuses to hand out a master key (a locked device, a restored backup
+         * whose Keystore entries did not come with it, a broken OEM keystore) throws out of
+         * `create`. That is turned into a store that reads as empty and writes nowhere, so the app
+         * stays usable and the provider simply reports a missing key instead of crashing.
+         */
+        fun getOrNull(context: Context): Secrets? = try {
+            get(context)
+        } catch (_: Exception) {
+            null
+        }
 
         /** Lazily creates the encrypted store. Keystore work happens here, never in Application. */
         fun get(context: Context): Secrets {

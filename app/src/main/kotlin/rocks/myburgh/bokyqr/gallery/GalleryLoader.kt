@@ -22,30 +22,49 @@ object GalleryLoader {
 
     private const val MAX_PIXELS = 8_000_000
 
+    /**
+     * Returns the decoded, upright bitmap, or null when the image cannot be read at all.
+     *
+     * Never throws. A picker URI is a promise made by another app, and that promise can be broken
+     * between the moment the user picks the image and the moment it is opened here: the granting
+     * app can be killed, the URI can be revoked, the item can be deleted by a sync client, or the
+     * provider can simply be one this device does not understand. `openInputStream` throws
+     * `SecurityException`, `FileNotFoundException` or `IllegalArgumentException` for those, and
+     * `BitmapFactory` can throw `OutOfMemoryError` on a hostile file. All of them mean the same
+     * thing to the caller: null, and a "that image could not be read" message.
+     */
     suspend fun load(context: Context, uri: Uri): Bitmap? = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
+        runCatching {
+            val resolver = context.contentResolver
 
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            openStream(resolver, uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
 
-        val sample = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_PIXELS)
-        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample }
-        val decoded = resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, decodeOptions)
-        } ?: return@withContext null
+            val sample = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_PIXELS)
+            val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample }
+            val decoded = openStream(resolver, uri)?.use {
+                BitmapFactory.decodeStream(it, null, decodeOptions)
+            } ?: return@runCatching null
 
-        val orientation = resolver.openInputStream(uri)?.use {
-            runCatching {
-                ExifInterface(it).getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL,
-                )
-            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        } ?: ExifInterface.ORIENTATION_NORMAL
+            val orientation = openStream(resolver, uri)?.use {
+                runCatching {
+                    ExifInterface(it).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL,
+                    )
+                }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+            } ?: ExifInterface.ORIENTATION_NORMAL
 
-        rotateIfNeeded(decoded, orientation)
+            rotateIfNeeded(decoded, orientation)
+        }.getOrNull()
     }
+
+    /** One guarded open per URI. Each of the three opens below is a separate trip to the provider. */
+    private fun openStream(
+        resolver: android.content.ContentResolver,
+        uri: Uri,
+    ): java.io.InputStream? = runCatching { resolver.openInputStream(uri) }.getOrNull()
 
     /** Smallest power-of-two sample whose output is within [maxPixels]. */
     internal fun calculateInSampleSize(width: Int, height: Int, maxPixels: Int): Int {
