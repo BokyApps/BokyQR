@@ -1,0 +1,62 @@
+Point the camera at a QR code, get the payload back, and read it before you act on it.
+
+BokyQR treats a scanned code as data, never as an instruction. Only two things are ever launched,
+and both are ones you tap deliberately: an http/https URL that passes every check in the app's
+payload policy, and a passkey QR. Everything else is shown to you as inert text with a copy button.
+
+WHAT IT OPENS
+
+* An http/https URL that survives every check - scheme, length, control characters, whitespace,
+  backslash tricks, percent-encoded control characters, URI syntax, user:password@ parts, and a
+  plausible host - is offered as "Open in browser" and becomes a plain implicit ACTION_VIEW that
+  your default browser handles. Not a WebView, not Custom Tabs, no in-app browser to phish from.
+* A passkey QR is handed to whatever on the device already handles the FIDO scheme. BokyQR does
+  not implement CTAP, BLE or the hybrid tunnel; it never speaks to a Bluetooth authenticator
+  itself.
+
+WHAT IT NEVER OPENS
+
+intent:, javascript:, file:, data:, content:, android-app:, market:, tel:, geo:, mailto:, sms:,
+WIFI:, vCards, plain text, and anything merely close to a URL. There is no Intent.parseUri, no
+setPackage, no explicit component and no extras copied out of scanned content, anywhere in the app.
+
+A URL whose host points at localhost, a private or link-local address, or a cloud metadata
+endpoint such as 169.254.169.254 is shown as text and not opened: those addresses aim at your own
+device or network, not at a website.
+
+A host is shown in both its Unicode and punycode forms when they differ, because that pair is
+what you need in order to spot xn--80ak6aa92e.com pretending to be something else.
+
+NO KEY SHIPS WITH THIS APP
+
+Reputation lookups - VirusTotal, urlscan.io, URLhaus - run with a key you supply yourself and
+store on the device. There is no built-in key, no shared key, no fallback key, no demo key and no
+proxy. Without your own key the lookups do not run; scanning still works, because scanning never
+needs the network.
+
+The app talks to the network only when you tap a provider, and the first time you do it tells you
+exactly what is about to be sent. It never fetches the scanned URL itself, and it never logs a
+request body, header or response, because those carry your key and the URL you scanned. Your keys
+are stored encrypted with a key held in the Android Keystore and are excluded from backup and
+device transfer.
+
+No analytics. No advertising. No crash reporter. No identifiers of any kind.
+
+PRIVACY
+
+Camera frames are decoded on the device and never stored or uploaded. Gallery import uses the
+Android photo picker only: no photo or media permission is requested, and the chosen image is
+decoded in memory and released.
+
+This is the F-Droid build. It is built from the fdroid flavor only, with
+:app:assembleFdroidRelease, and contains no ML Kit, no Play Services, no Firebase and no Google
+runtime of any kind: scanning is ZXing, in pure Java.
+
+The reputation providers are optional HTTPS APIs that you have to bring a key to, and the app
+makes no network request without a tap. A maintainer may still wish to declare
+AntiFeature:NonFreeNet for them; see the README section on F-Droid anti-features for the reasoning
+behind that stance.
+
+BokyQR is not affiliated with or endorsed by Google, ZXing, VirusTotal, urlscan.io or URLhaus.
+
+License: Apache-2.0.

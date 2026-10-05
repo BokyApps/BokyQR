@@ -1,0 +1,10 @@
+BokyQR 0.1.0 (versionCode 1)
+
+* Scan QR codes with the camera, or import one from the photo picker.
+* Show every scanned payload as text first. Only an http/https URL that passes the full payload
+  policy, and a passkey QR, are ever offered for opening, and only on a tap.
+* Never open intent:, javascript:, file:, content:, android-app:, tel:, mailto: and the rest.
+* Refuse to open localhost, private, link-local and cloud metadata addresses; show them as text.
+* Optional VirusTotal, urlscan.io and URLhaus reputation checks, each behind its own disclosure,
+  each using a key you supply. No key ships with the app.
+* F-Droid build: ZXing only. No ML Kit, no Play Services, no Firebase, no analytics.
