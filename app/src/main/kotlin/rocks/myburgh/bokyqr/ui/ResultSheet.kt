@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -187,7 +187,7 @@ private fun OpenableUrlBody(
         {
             IconButton(onClick = { Handoff.openInBrowser(context, link.url) }) {
                 Icon(
-                    imageVector = Icons.Filled.HourglassEmpty,
+                    imageVector = Icons.Filled.Search,
                     contentDescription = "Open VirusTotal details",
                 )
             }
