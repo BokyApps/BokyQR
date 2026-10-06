@@ -56,6 +56,12 @@ android {
         versionName = "0.1.0"
     }
 
+    // Artifact basename is the app name, not the Gradle module `:app`
+    // (otherwise outputs are app-play-debug.apk).
+    base {
+        archivesName.set("bokyqr")
+    }
+
     signingConfigs {
         if (releaseSigningReady) {
             create("release") {
@@ -297,3 +303,12 @@ val verifyReleaseTrustAnchors = tasks.register("verifyReleaseTrustAnchors") {
 tasks.matching { it.name == "preFdroidReleaseBuild" || it.name == "prePlayReleaseBuild" }
     .configureEach { dependsOn(verifyReleaseTrustAnchors) }
 tasks.named("check") { dependsOn(verifyReleaseTrustAnchors) }
+
+
+// Explicit APK names: bokyqr-<flavor>-<buildType>-<version>.apk
+android.applicationVariants.configureEach {
+    outputs.configureEach {
+        val out = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+        out.outputFileName = "bokyqr-${flavorName}-${buildType.name}-${versionName}.apk"
+    }
+}
