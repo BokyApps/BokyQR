@@ -1,9 +1,13 @@
 # BokyQR privacy policy
 
 BokyQR is an offline QR scanner. This document is the plain-language statement of what it does
-with your data. It is written to be pasted into a store listing as-is, once a public URL for it
-exists. **There is no published URL yet** — no store listing exists for this app, and this file
-does not claim one.
+with your data.
+
+**Canonical hosted URL:** https://bokyapps.github.io/privacy/
+
+That page is the shared BokyApps privacy policy (covering all Boky apps, with a BokyQR-specific
+section). Keep this file and the hosted page aligned. Use the URL above in Play Console and
+F-Droid metadata.
 
 Last updated: 5 October 2026.
 
@@ -132,4 +136,5 @@ tap one. See also [DATA_SAFETY.md](DATA_SAFETY.md) for the matching Play Console
 ## Changes and contact
 
 This document changes with the app. The source, and its full history, is in the repository; the
-app's source is the authoritative statement of what it does.
+app's source is the authoritative statement of what it does. The canonical public copy is
+https://bokyapps.github.io/privacy/.
