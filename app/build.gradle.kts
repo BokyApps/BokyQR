@@ -2,7 +2,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // No org.jetbrains.kotlin.android: AGP 9 compiles Kotlin itself (built-in Kotlin).
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -306,9 +306,17 @@ tasks.named("check") { dependsOn(verifyReleaseTrustAnchors) }
 
 
 // Explicit APK names: bokyqr-<flavor>-<buildType>-<version>.apk
-android.applicationVariants.configureEach {
-    outputs.configureEach {
-        val out = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-        out.outputFileName = "bokyqr-${flavorName}-${buildType.name}-${versionName}.apk"
+//
+// This reads the public Variant API rather than the legacy `android.applicationVariants` one, which
+// is on its way out (AGP 10 makes the new API mandatory) and whose BaseVariantOutputImpl cast is an
+// internal AGP class that has already moved once.
+androidComponents {
+    onVariants { variant ->
+        val flavor = variant.flavorName.orEmpty()
+        val buildType = variant.buildType.orEmpty()
+        val version = android.defaultConfig.versionName.orEmpty()
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("bokyqr-$flavor-$buildType-$version.apk")
+        }
     }
 }

@@ -1,6 +1,10 @@
 [versions]
-agp = "8.13.2"
-kotlin = "2.0.20"
+agp = "9.4.1"
+# AGP 9 has built-in Kotlin support and brings its own Kotlin Gradle plugin (2.2.10 for AGP 9.4.1),
+# which is why the org.jetbrains.kotlin.android plugin is no longer applied anywhere. This version
+# has to match that bundled KGP, because :core's kotlin-jvm plugin and the Compose compiler plugin
+# resolve against the same buildscript classpath.
+kotlin = "2.2.10"
 coroutines = "1.9.0"
 junit4 = "4.13.2"
 
@@ -55,6 +59,5 @@ zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
