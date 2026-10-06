@@ -2,6 +2,7 @@ package rocks.myburgh.bokyqr.scanner
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.PointF
 import androidx.camera.core.ImageProxy
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.barcode.BarcodeScanner
@@ -33,20 +34,54 @@ class MlKitBarcodeDecoder : BarcodeDecoder {
             .build(),
     )
 
-    override fun decodeFrame(image: ImageProxy): String? {
+    override fun decodeFrame(image: ImageProxy): DecodedQr? {
         val mediaImage = image.image ?: return null
-        return run(InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees), 5)
+        val rotation = image.imageInfo.rotationDegrees
+        // ML Kit reports barcode coordinates in the coordinate space of the input image as it is
+        // meant to be displayed, i.e. after this rotation is applied. For a 90/270 frame that is
+        // the upright image, whose width and height are the ImageProxy's the other way round.
+        val rotated = rotation == 90 || rotation == 270
+        val width = if (rotated) image.height else image.width
+        val height = if (rotated) image.width else image.height
+        return run(InputImage.fromMediaImage(mediaImage, rotation), width, height, 5)
     }
 
-    override fun decodeStill(bitmap: Bitmap): String? = run(InputImage.fromBitmap(bitmap, 0), 10)
+    override fun decodeStill(bitmap: Bitmap): DecodedQr? =
+        run(InputImage.fromBitmap(bitmap, 0), bitmap.width, bitmap.height, 10)
 
-    private fun run(input: InputImage, timeoutSeconds: Long): String? = try {
+    private fun run(input: InputImage, imageWidth: Int, imageHeight: Int, timeoutSeconds: Long): DecodedQr? = try {
         val task = scanner.process(input)
         Tasks.await(task, timeoutSeconds, TimeUnit.SECONDS)
-        task.result?.firstNotNullOfOrNull { it.rawValue }
+        val barcode = task.result?.firstOrNull { it.rawValue != null } ?: return null
+        val payload = barcode.rawValue ?: return null
+        DecodedQr(
+            payload = payload,
+            corners = barcode.corners(),
+            imageWidth = imageWidth,
+            imageHeight = imageHeight,
+        )
     } catch (_: Exception) {
         // Any decode failure is simply "no code in this frame"; frames keep coming.
         null
+    }
+
+    /**
+     * The code's corners as [PointF], or its bounding box when ML Kit did not report corner
+     * points. An empty list is "decoded but no geometry", which the overlay treats as "keep
+     * searching" rather than drawing a shape at the origin.
+     */
+    private fun Barcode.corners(): List<PointF> {
+        val points = cornerPoints
+        if (points != null && points.isNotEmpty()) {
+            return points.map { PointF(it.x.toFloat(), it.y.toFloat()) }
+        }
+        val box = boundingBox ?: return emptyList()
+        return listOf(
+            PointF(box.left.toFloat(), box.top.toFloat()),
+            PointF(box.right.toFloat(), box.top.toFloat()),
+            PointF(box.right.toFloat(), box.bottom.toFloat()),
+            PointF(box.left.toFloat(), box.bottom.toFloat()),
+        )
     }
 
     override fun close() {

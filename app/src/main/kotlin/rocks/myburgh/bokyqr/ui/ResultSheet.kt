@@ -3,13 +3,18 @@ package rocks.myburgh.bokyqr.ui
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -21,7 +26,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -169,9 +176,37 @@ private fun OpenableUrlBody(
     ) {
         Text("Check with VirusTotal")
     }
+    // The public report page for this URL. It is rebuilt here from the locally computed url id,
+    // but it is still a link to a third-party site, so it passes the same two gates as the
+    // urlscan link below: PayloadPolicy must call it an openable https URL, and the host must be
+    // virustotal.com itself. No usable link, no button.
+    val virusTotalLink: ScanDecision.OpenableUrl? = virusTotal
+        ?.let { PayloadPolicy.classify(it.guiUrl) as? ScanDecision.OpenableUrl }
+        ?.takeIf { it.hostAscii == "www.virustotal.com" || it.hostAscii == "virustotal.com" }
+    val virusTotalTrailing: (@Composable () -> Unit)? = virusTotalLink?.let { link ->
+        {
+            IconButton(onClick = { Handoff.openInBrowser(context, link.url) }) {
+                Icon(
+                    imageVector = Icons.Filled.HourglassEmpty,
+                    contentDescription = "Open VirusTotal details",
+                )
+            }
+        }
+    }
     ProviderStatusLine(
-        viewModel.virusTotalState,
+        state = viewModel.virusTotalState,
         loadingText = "Checking VirusTotal... this can take a minute for a new link.",
+        doneColor = { outcome ->
+            // Red only for confirmed malicious verdicts, amber for suspicious ones, green for a
+            // report with neither. The counts themselves stay in the line either way.
+            val result = outcome as ProviderOutcome.VirusTotal
+            when {
+                result.malicious > 0 -> Color.Red
+                result.suspicious > 0 -> Color(0xFFFFC107)
+                else -> Color(0xFF4CAF50)
+            }
+        },
+        trailing = virusTotalTrailing,
     ) { outcome ->
         outcome as ProviderOutcome.VirusTotal
         "VirusTotal: ${outcome.malicious} malicious, ${outcome.suspicious} suspicious, " +
@@ -228,7 +263,14 @@ private fun OpenableUrlBody(
     ) {
         Text("Look up in URLhaus")
     }
-    ProviderStatusLine(viewModel.urlhausState) { outcome ->
+    ProviderStatusLine(
+        state = viewModel.urlhausState,
+        doneColor = { outcome ->
+            // Amber for a miss, never green: URLhaus is a known-malware lookup, and "not listed"
+            // is not the same as clean.
+            if ((outcome as ProviderOutcome.Urlhaus).listed) Color.Red else Color(0xFFFFC107)
+        },
+    ) { outcome ->
         val urlhaus = outcome as ProviderOutcome.Urlhaus
         if (urlhaus.listed) {
             "URLhaus: this URL is in the URLhaus malware list" +
@@ -293,12 +335,22 @@ private class OpenWarning(val title: String, val body: String)
 private fun ProviderStatusLine(
     state: ProviderState,
     loadingText: String = "Checking...",
+    doneColor: ((ProviderOutcome) -> Color)? = null,
+    trailing: (@Composable () -> Unit)? = null,
     doneText: (ProviderOutcome) -> String,
 ) {
     when (state) {
         ProviderState.Idle -> Unit
         ProviderState.Loading -> Text(loadingText, style = MaterialTheme.typography.bodySmall)
-        is ProviderState.Done -> Text(doneText(state.outcome), style = MaterialTheme.typography.bodySmall)
+        is ProviderState.Done -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = doneText(state.outcome),
+                style = MaterialTheme.typography.bodySmall,
+                color = doneColor?.invoke(state.outcome) ?: Color.Unspecified,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            trailing?.invoke()
+        }
         is ProviderState.Failed -> Text(
             state.message,
             style = MaterialTheme.typography.bodySmall,

@@ -24,7 +24,12 @@ sealed interface ProviderOutcome {
         val suspicious: Int,
         val harmless: Int,
         val undetected: Int,
-    ) : ProviderOutcome
+        /** The VirusTotal lookup id for the scanned URL: `virusTotalUrlId(url)`. */
+        val urlId: String,
+    ) : ProviderOutcome {
+        /** The public report page for [urlId], for the "open details" hand-off in the UI. */
+        val guiUrl: String get() = "https://www.virustotal.com/gui/url/$urlId"
+    }
 
     data class Urlscan(val uuid: String, val resultUrl: String) : ProviderOutcome
 
@@ -85,7 +90,7 @@ object VirusTotalClient {
         val id = virusTotalUrlId(url)
         val existing = Http.get("$BASE/urls/$id", mapOf("x-apikey" to apiKey))
         when (existing.code) {
-            200 -> return existing.body.statsOf("data")
+            200 -> return existing.body.statsOf("data", id)
             404 -> Unit // never seen before: fall through and submit it.
             429 -> throw ProviderException(RATE_LIMIT)
             401, 403 -> throw ProviderException(BAD_KEY)
@@ -102,10 +107,14 @@ object VirusTotalClient {
             else -> throw ProviderException("VirusTotal submission failed (HTTP ${submitted.code}).")
         }
         val analysisId = JSONObject(submitted.body).getJSONObject("data").getString("id")
-        return pollAnalysis(analysisId, apiKey)
+        return pollAnalysis(analysisId, id, apiKey)
     }
 
-    private suspend fun pollAnalysis(analysisId: String, apiKey: String): ProviderOutcome.VirusTotal {
+    private suspend fun pollAnalysis(
+        analysisId: String,
+        urlId: String,
+        apiKey: String,
+    ): ProviderOutcome.VirusTotal {
         // The id comes from the server. Encode it as one path segment so a crafted value cannot
         // inject a slash, a query or an authority and change the host we talk to.
         val path = encodeSegment(analysisId)
@@ -125,7 +134,7 @@ object VirusTotalClient {
                     val attributes = JSONObject(response.body).getJSONObject("data")
                         .getJSONObject("attributes")
                     if (attributes.optString("status") == "completed") {
-                        return attributes.getJSONObject("stats").toOutcome()
+                        return attributes.getJSONObject("stats").toOutcome(urlId)
                     }
                 }
                 429 -> throw ProviderException(RATE_LIMIT)
@@ -154,18 +163,19 @@ object VirusTotalClient {
     private fun encodeSegment(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
-    private fun String.statsOf(rootKey: String): ProviderOutcome.VirusTotal {
+    private fun String.statsOf(rootKey: String, urlId: String): ProviderOutcome.VirusTotal {
         val stats = JSONObject(this).getJSONObject(rootKey)
             .getJSONObject("attributes")
             .getJSONObject("last_analysis_stats")
-        return stats.toOutcome()
+        return stats.toOutcome(urlId)
     }
 
-    private fun JSONObject.toOutcome() = ProviderOutcome.VirusTotal(
+    private fun JSONObject.toOutcome(urlId: String) = ProviderOutcome.VirusTotal(
         malicious = optInt("malicious"),
         suspicious = optInt("suspicious"),
         harmless = optInt("harmless"),
         undetected = optInt("undetected"),
+        urlId = urlId,
     )
 }
 
