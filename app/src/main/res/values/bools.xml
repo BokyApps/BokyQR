@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Screenshot and screen-recording protection for the two screens that show something worth keeping
+  off the display: Settings, which shows the user's own API keys, and the result sheet, which shows
+  the scanned payload and any verdict a provider returned. Read in SecureWindow.kt.
+
+  Release builds keep this true. `src/debug` overrides it to false so store listing screenshots can
+  be captured from a debug build, which is never distributed.
+-->
+<resources>
+    <bool name="screenshot_protection">true</bool>
+</resources>

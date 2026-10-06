@@ -1,0 +1,43 @@
+# fdroiddata metadata for BokyQR.
+#
+# This file is not read by the app or by F-Droid's build of the app. It is the file that has to be
+# copied to <fdroiddata>/metadata/rocks.myburgh.bokyqr.yml and opened as a merge request with the
+# "New App" label, which is how the app gets into the main F-Droid repository. It is versioned here
+# so the submission stays reviewable and the anti-feature decision stays visible; see README.md,
+# "Anti-feature: NonFreeNet is declared".
+#
+# The Builds entry must point at the tag whose tree contains fastlane/metadata/android/en-US/:
+# fdroidserver reads the listing text and graphics from the source checkout it builds, so listing
+# changes only take effect in a new tagged release.
+
+AntiFeatures:
+  # VirusTotal, urlscan.io and URLhaus are proprietary services that this app promotes, even though
+  # every lookup is optional, user-initiated and needs a key the user supplies. An API key that is
+  # free of charge does not make the service free software.
+  - NonFreeNet
+
+Categories:
+  # "System" is the other defensible choice; both are existing fdroiddata categories.
+  - Security
+
+License: Apache-2.0
+AuthorName: Sarel Myburgh
+SourceCode: https://github.com/BokyApps/BokyQR
+IssueTracker: https://github.com/BokyApps/BokyQR/issues
+
+RepoType: git
+Repo: https://github.com/BokyApps/BokyQR
+
+Builds:
+  - versionName: 0.1.1
+    versionCode: 2
+    commit: v0.1.1
+    # The Gradle task is assemble<flavour>Release, so this builds assembleFdroidRelease. The play
+    # flavour is proprietary (ML Kit) and must never be built here.
+    gradle:
+      - fdroid
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.1.1
+CurrentVersionCode: 2

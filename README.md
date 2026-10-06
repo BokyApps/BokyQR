@@ -109,27 +109,36 @@ flavor is ZXing alone and is what the store listing describes.
 * `./gradlew :app:assembleFdroidRelease` — the artifact to submit.
 * `./gradlew :app:assemblePlayDebug` — a local smoke test of the ML Kit path. Do not submit it.
 * Store metadata lives in [`fastlane/metadata/android/en-US/`](fastlane/metadata/android/en-US)
-  (`title.txt`, `short_description.txt`, `full_description.txt`, and `changelogs/1.txt` keyed to
-  `versionCode = 1`). F-Droid supplies the icon from the build; screenshots are not committed.
+  (`title.txt`, `short_description.txt`, `full_description.txt`, `images/icon.png`,
+  `images/featureGraphic.png`, and `changelogs/2.txt` keyed to `versionCode = 2`). Both graphics are
+  rendered from the launcher vector drawables. The icon is committed deliberately: the app ships an
+  adaptive icon only, `fdroid update` skips `.xml` icon paths and finds no PNG inside the APK, so
+  without `images/icon.png` the listing would carry no icon at all.
+* Screenshots are captured from a debug build, which drops `FLAG_SECURE` for exactly that purpose
+  (see "Certificates: what is trusted"). Release builds keep it.
 * `verifyFdroidClasspath` runs on `check`, so a build that has picked up ML Kit by accident fails
   before it is ever offered for review.
 
-### Anti-feature stance: `NonFreeNet`
+### Anti-feature: `NonFreeNet` **is** declared
 
 The three reputation providers are optional HTTPS APIs that require the user to bring their own
 key, and **the app makes no network request at all unless the user taps one of them**. There is no
 analytics, no crash reporter, no tracking and no automatic network of scanned content.
 
-The F-Droid reviewer may still want `AntiFeature:NonFreeNet` declared, because the app is capable
-of network access to a proprietary third-party service. The honest position is that this is a
-reviewer judgement rather than a property of the code: the network path is gated behind a
-per-provider disclosure, requires a credential the developer does not have and does not want, and
-never runs on its own. If the reviewer asks for it, add it — the anti-feature is metadata, and
-declaring it costs nothing but a line in the listing. It is recorded here rather than baked into
-`fastlane/metadata` so the decision stays visible and stays reversible.
+`AntiFeatures: NonFreeNet` is declared anyway. The anti-feature is about the *service*, not about
+cost and not about how the request is triggered: VirusTotal, urlscan.io and URLhaus are proprietary
+services, and this app promotes them. That a provider issues API keys for free does not make the
+service free software — free of charge is not free as in freedom — and F-Droid's wording,
+"promotes or depends entirely on a non-free network service", covers promotion, not only
+dependence. The declaration lives in
+[`docs/fdroid/rocks.myburgh.bokyqr.yml`](docs/fdroid/rocks.myburgh.bokyqr.yml), because
+anti-features can only be set in fdroiddata metadata, never from the app's own repository.
 
-`AntiFeature:Tracking` should **not** be declared: nothing in the app is used to track the user,
-with or without a provider.
+`AntiFeature:TetheredNet` is **not** applicable: the app does not depend entirely on one instance of
+a network service, every provider is optional, and scanning works with no network at all.
+
+`AntiFeature:Tracking` is **not** declared: nothing in the app is used to track the user, with or
+without a provider.
 
 ## Certificates: what is trusted
 
@@ -144,7 +153,10 @@ with or without a provider.
   behaviour cannot quietly leak into a release. If you ever see this task fail, someone edited the
   wrong file — do not add the user anchor to `src/main`.
 * The settings screen and the result sheet set `FLAG_SECURE`, so API keys and scanned payloads
-  stay out of screenshots, screen recordings and the recent-apps thumbnail.
+  stay out of screenshots, screen recordings and the recent-apps thumbnail. **Debug builds omit the
+  flag** — `screenshot_protection` is `true` in `app/src/main/res/values/bools.xml` and overridden
+  to `false` in `app/src/debug/res/values/bools.xml` — so store listing screenshots can be captured
+  from a debug build with `adb exec-out screencap`. No shipped build loses the protection.
 
 ## Building
 

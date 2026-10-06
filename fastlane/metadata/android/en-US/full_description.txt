@@ -50,14 +50,11 @@ Camera frames are decoded on the device and never stored or uploaded. Gallery im
 Android photo picker only: no photo or media permission is requested, and the chosen image is
 decoded in memory and released.
 
-This is the F-Droid build. It is built from the fdroid flavor only, with
-:app:assembleFdroidRelease, and contains no ML Kit, no Play Services, no Firebase and no Google
-runtime of any kind: scanning is ZXing, in pure Java.
+Scanning uses ZXing, in pure Java: no ML Kit, no Play Services, no Firebase and no Google runtime
+of any kind ships in this build.
 
-The reputation providers are optional HTTPS APIs that you have to bring a key to, and the app
-makes no network request without a tap. A maintainer may still wish to declare
-AntiFeature:NonFreeNet for them; see the README section on F-Droid anti-features for the reasoning
-behind that stance.
+The reputation providers are optional HTTPS APIs that you have to bring a key to, and the app makes
+no network request without a tap.
 
 BokyQR is not affiliated with or endorsed by Google, ZXing, VirusTotal, urlscan.io or URLhaus.
 

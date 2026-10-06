@@ -1,0 +1,8 @@
+BokyQR 0.1.1 (versionCode 2)
+
+* First release prepared for F-Droid: listing icon and feature graphic added, and a description
+  rewritten for the store page.
+* Build tooling updated (Android Gradle plugin 8.13.2, Gradle 8.14.5), so API 36 is a supported
+  compile target rather than an untested one.
+* Debug builds can capture the app's own screens (Settings, scan result) for store listings;
+  release builds still block screenshots and screen recording.

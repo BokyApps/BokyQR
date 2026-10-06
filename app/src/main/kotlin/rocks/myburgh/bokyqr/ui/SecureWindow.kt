@@ -7,6 +7,7 @@ import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import rocks.myburgh.bokyqr.R
 
 /** Unwraps the activity a composable is hosted in, however many wrappers are in the way. */
 internal tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -26,13 +27,19 @@ internal tailrec fun Context.findActivity(): Activity? = when (this) {
  * a screen the user switches away from constantly.
  *
  * The flag is cleared on dispose so returning to the camera screen does not leave it stuck on.
+ *
+ * Whether the flag is applied at all is the `screenshot_protection` boolean: true in `src/main`,
+ * overridden to false in `src/debug` so a debug build can capture these screens for the store
+ * listings. No shipped build loses the protection — debug APKs are never distributed, see the
+ * "Certificates: what is trusted" section of README.md.
  */
 @Composable
 internal fun SecureWindow() {
     val context = LocalContext.current
     DisposableEffect(context) {
         val window = context.findActivity()?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+        val secure = context.resources.getBoolean(R.bool.screenshot_protection)
+        if (secure) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (secure) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 }

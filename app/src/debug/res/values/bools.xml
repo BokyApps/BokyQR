@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug only: FLAG_SECURE is deliberately not applied, so BokyQR's own screens (Settings, the result
+  sheet) can be captured for the store listings with `adb exec-out screencap`.
+
+  Debug builds are never shipped, uploaded or distributed — they trust user-installed CAs, so they
+  are trivial to intercept. Do not move this file out of `src/debug`.
+-->
+<resources>
+    <bool name="screenshot_protection">false</bool>
+</resources>
