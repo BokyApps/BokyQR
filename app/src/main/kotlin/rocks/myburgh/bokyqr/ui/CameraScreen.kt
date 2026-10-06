@@ -4,7 +4,9 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.provider.Settings
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +18,7 @@ import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,10 +29,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashlightOff
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,7 +51,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -63,10 +79,13 @@ import rocks.myburgh.bokyqr.gallery.GalleryLoader
 import rocks.myburgh.bokyqr.scan.QrAnalyzer
 import rocks.myburgh.bokyqr.scan.ScanViewModel
 import rocks.myburgh.bokyqr.scanner.BarcodeDecoder
+import rocks.myburgh.bokyqr.scanner.DecodedQr
 import rocks.myburgh.bokyqr.scanner.createBarcodeDecoder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * The first screen. If the camera permission is already granted the camera binds immediately;
@@ -124,7 +143,23 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
         }
     }
 
-    val analyzer = remember { QrAnalyzer { payload -> viewModel.onPayload(payload) } }
+    // Geometry of the most recent decoded frame, held only so the overlay can draw a border
+    // around the code. The analyzer runs on a camera-owned thread, so every update lands here
+    // through the main-thread Handler.
+    var tracked by remember { mutableStateOf<DecodedQr?>(null) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val analyzer = remember {
+        QrAnalyzer(
+            onPayload = { payload -> viewModel.onPayload(payload) },
+            onFrameDecoded = { decoded ->
+                mainHandler.post {
+                    // A stale frame that raced the sheet opening is dropped: while the sheet is
+                    // up, the border belongs to the paused analyzer, not the camera.
+                    if (!viewModel.sheetVisible) tracked = decoded
+                }
+            },
+        )
+    }
     val executor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
     val previewView = remember {
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
@@ -233,9 +268,10 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
     }
 
     // Pause the analyzer while a result sheet is up so a code in front of the camera is not decoded
-    // over and over.
+    // over and over. Pausing also drops the tracking border: the sheet is what is on screen now.
     LaunchedEffect(viewModel.sheetVisible) {
         analyzer.paused = viewModel.sheetVisible
+        if (viewModel.sheetVisible) tracked = null
     }
 
     // Resolved here, not inside the picker callback: a launcher result is not a composable scope.
@@ -259,13 +295,14 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
                 viewModel.showNotice(galleryUnreadableMessage)
                 return@launch
             }
-            val payload = try {
+            val decoded = try {
                 withContext(Dispatchers.Default) { decoder?.decodeStill(bitmap) }
             } finally {
                 // Recycled whatever happened: an OutOfMemoryError here is the one case where
                 // holding on to a full-size bitmap makes the next frame worse.
                 bitmap.recycle()
             }
+            val payload = decoded?.payload
             if (payload == null) {
                 viewModel.showNotice(galleryNoCodeMessage)
             } else {
@@ -314,6 +351,12 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
             }
         }
 
+        // Drawn above the preview and below the controls. The Canvas takes no pointer input, so
+        // the buttons still receive their taps.
+        if (hasPermission) {
+            ScanOverlay(tracked)
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -326,14 +369,26 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (hasPermission && torchAvailable) {
-                    OutlinedButton(onClick = {
-                        torchOn = !torchOn
-                        camera?.cameraControl?.enableTorch(torchOn)
-                    }) {
-                        Text(if (torchOn) "Torch off" else "Torch on")
+                    IconButton(
+                        onClick = {
+                            torchOn = !torchOn
+                            camera?.cameraControl?.enableTorch(torchOn)
+                        },
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), CircleShape),
+                    ) {
+                        Icon(
+                            imageVector = if (torchOn) Icons.Filled.FlashlightOff else Icons.Filled.FlashlightOn,
+                            contentDescription = if (torchOn) "Torch off" else "Torch on",
+                            tint = Color.White,
+                        )
                     }
                 }
-                OutlinedButton(onClick = onOpenSettings) { Text("Settings") }
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), CircleShape),
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Color.White)
+                }
             }
             if (hasPermission) {
                 Text(
@@ -422,8 +477,96 @@ private fun isPermanentlyDenied(context: android.content.Context, asked: Boolean
 /** Opens this app's entry in system settings, where a permanently denied permission can be granted. */
 private fun android.content.Context.openAppDetailsSettings() {
     val intent = Intent(
-        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
         Uri.fromParts("package", packageName, null),
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { startActivity(intent) }
+}
+
+/**
+ * Draws the tracking border over the camera preview.
+ *
+ * The decoder reports corners in the coordinate space of the decoded image, and the preview is
+ * FILL_CENTER: the image is scaled uniformly until it covers the view and centred, so the same
+ * transform is applied to each corner here. Geometry is drawn and nothing else; the payload text
+ * never reaches this function.
+ *
+ * With no live track, a centred viewfinder is drawn instead, so the screen keeps saying "point
+ * the camera at a code" rather than showing a stale border.
+ */
+@Composable
+private fun ScanOverlay(decoded: DecodedQr?) {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val image = decoded
+        if (image != null && image.imageWidth > 0 && image.imageHeight > 0) {
+            val scale = max(size.width / image.imageWidth, size.height / image.imageHeight)
+            val dx = (size.width - image.imageWidth * scale) / 2f
+            val dy = (size.height - image.imageHeight * scale) / 2f
+            val points = image.corners.map { Offset(dx + it.x * scale, dy + it.y * scale) }
+            val path = when {
+                points.size >= 3 -> Path().apply {
+                    moveTo(points[0].x, points[0].y)
+                    for (point in points.drop(1)) lineTo(point.x, point.y)
+                    close()
+                }
+                // Two points or fewer is not a polygon; the caller maps a bounding box to four,
+                // but a decoder is free to report fewer, so box whatever did come back.
+                points.isNotEmpty() -> Path().apply {
+                    addRect(
+                        Rect(
+                            points.minOf { it.x },
+                            points.minOf { it.y },
+                            points.maxOf { it.x },
+                            points.maxOf { it.y },
+                        ),
+                    )
+                }
+                else -> null
+            }
+            if (path != null) {
+                drawPath(
+                    path = path,
+                    color = Color(0xFF00E676),
+                    style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                )
+                return@Canvas
+            }
+        }
+        drawViewfinder()
+    }
+}
+
+/**
+ * A centred square of corner brackets, drawn while there is no track to outline. White rather
+ * than green: it is an invitation to scan, not a result.
+ */
+private fun DrawScope.drawViewfinder() {
+    val side = min(size.width, size.height) * 0.6f
+    val left = (size.width - side) / 2f
+    val top = (size.height - side) / 2f
+    val right = left + side
+    val bottom = top + side
+    val arm = side * 0.2f
+    val path = Path().apply {
+        moveTo(left, top + arm)
+        lineTo(left, top)
+        lineTo(left + arm, top)
+
+        moveTo(right - arm, top)
+        lineTo(right, top)
+        lineTo(right, top + arm)
+
+        moveTo(right, bottom - arm)
+        lineTo(right, bottom)
+        lineTo(right - arm, bottom)
+
+        moveTo(left + arm, bottom)
+        lineTo(left, bottom)
+        lineTo(left, bottom - arm)
+    }
+    drawPath(
+        path = path,
+        color = Color.White.copy(alpha = 0.85f),
+        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+    )
 }

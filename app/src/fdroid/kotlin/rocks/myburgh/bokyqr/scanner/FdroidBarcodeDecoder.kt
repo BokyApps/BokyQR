@@ -2,6 +2,7 @@ package rocks.myburgh.bokyqr.scanner
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.PointF
 import androidx.camera.core.ImageProxy
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -30,27 +31,41 @@ class ZxingBarcodeDecoder : BarcodeDecoder {
     private val stillLock = Any()
     private val hints: Map<DecodeHintType, Any> = mapOf(DecodeHintType.TRY_HARDER to true)
 
-    override fun decodeFrame(image: ImageProxy): String? =
-        decode(yuvLuminance(image), frameReader, frameLock)
+    override fun decodeFrame(image: ImageProxy): DecodedQr? {
+        val source = yuvLuminance(image) ?: return null
+        // The luminance source is already upright, so its dimensions are the image size the
+        // result points below are expressed in.
+        return decode(source, source.width, source.height, frameReader, frameLock)
+    }
 
-    override fun decodeStill(bitmap: Bitmap): String? {
+    override fun decodeStill(bitmap: Bitmap): DecodedQr? {
         val width = bitmap.width
         val height = bitmap.height
         if (width <= 0 || height <= 0) return null
-        return decode(
-            runCatching { RGBLuminanceSource(width, height, IntArray(width * height).also {
+        val source = runCatching {
+            RGBLuminanceSource(width, height, IntArray(width * height).also {
                 bitmap.getPixels(it, 0, width, 0, 0, width, height)
-            }) }.getOrNull(),
-            stillReader,
-            stillLock,
-        )
+            })
+        }.getOrNull() ?: return null
+        return decode(source, width, height, stillReader, stillLock)
     }
 
-    private fun decode(source: LuminanceSource?, reader: QRCodeReader, lock: Any): String? {
-        if (source == null) return null
+    private fun decode(
+        source: LuminanceSource,
+        imageWidth: Int,
+        imageHeight: Int,
+        reader: QRCodeReader,
+        lock: Any,
+    ): DecodedQr? {
         synchronized(lock) {
             return try {
-                reader.decode(BinaryBitmap(HybridBinarizer(source)), hints).text
+                val result = reader.decode(BinaryBitmap(HybridBinarizer(source)), hints)
+                DecodedQr(
+                    payload = result.text,
+                    corners = result.resultPoints?.map { PointF(it.x, it.y) }.orEmpty(),
+                    imageWidth = imageWidth,
+                    imageHeight = imageHeight,
+                )
             } catch (_: Exception) {
                 null
             } finally {
