@@ -3,7 +3,6 @@ package rocks.myburgh.bokyqr.ui
 import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.app.SearchManager
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.net.Uri
@@ -18,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import rocks.myburgh.bokyqr.core.BarcodeFormats
 import rocks.myburgh.bokyqr.core.HexDump
 import rocks.myburgh.bokyqr.core.PayloadPolicy
 import rocks.myburgh.bokyqr.core.ScanDecision
+import rocks.myburgh.bokyqr.core.WebSearch
 import rocks.myburgh.bokyqr.core.confirmBeforeOpen
 import rocks.myburgh.bokyqr.data.Settings
 import rocks.myburgh.bokyqr.handoff.Handoff
@@ -55,6 +57,8 @@ import rocks.myburgh.bokyqr.scan.ProviderState
 import rocks.myburgh.bokyqr.scan.ScanViewModel
 import rocks.myburgh.bokyqr.wifi.WifiConnector
 import rocks.myburgh.bokyqr.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The result sheet. It shows what `:core` decided and offers only the actions that decision allows.
@@ -132,8 +136,8 @@ private fun WifiBody(decision: ScanDecision.Wifi, context: Context, copy: (Strin
 private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, context: Context, copy: (String, String) -> Unit, onDismiss: () -> Unit, refusal: String? = null, format: String = "QR_CODE") {
     val barcode = !BarcodeFormats.isQr(format)
     val isImage = payload.kind == rocks.myburgh.bokyqr.core.PayloadKind.IMAGE
-    val image = remember(payload.raw) {
-        if (!isImage) null else runCatching {
+    val decoded = produceState<Result<android.graphics.Bitmap>?>(initialValue = null, payload.raw) {
+        value = if (!isImage) null else withContext(Dispatchers.Default) { runCatching {
             val encoded = payload.raw.substringAfter(',', "")
             val bytes = Base64.decode(encoded, Base64.DEFAULT)
             require(bytes.size <= 1_000_000)
@@ -144,8 +148,9 @@ private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, co
             while ((maxOf(bounds.outWidth, bounds.outHeight) + sample - 1) / sample > 2048) sample *= 2
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
                 ?: error("decode failed")
-        }.getOrNull()
+        } }
     }
+    val image = decoded.value?.getOrNull()
     val text = when {
         isImage -> payload.raw.take(200) + "…"
         payload.kind == rocks.myburgh.bokyqr.core.PayloadKind.BINARY -> HexDump.format(payload.raw.toByteArray(Charsets.ISO_8859_1))
@@ -168,21 +173,17 @@ private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, co
         title = { Text(title) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             refusal?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (isImage && image == null) Text(stringResource(R.string.content_image_failed))
+            if (isImage && decoded.value == null) CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            if (isImage && decoded.value?.isFailure == true) Text(stringResource(R.string.content_image_failed))
             image?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = stringResource(R.string.content_image), modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) }
             if (barcode) Text(stringResource(R.string.content_format, BarcodeFormats.displayName(format)))
-            androidx.compose.foundation.text.selection.SelectionContainer { Text(text, fontFamily = FontFamily.Monospace, overflow = TextOverflow.Clip, modifier = Modifier.verticalScroll(rememberScrollState())) }
+            Text(text, fontFamily = FontFamily.Monospace, overflow = TextOverflow.Clip, modifier = Modifier.verticalScroll(rememberScrollState()))
         } },
-        confirmButton = { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { copy(context.getString(R.string.content_clip_label), payload.raw) }) { Text(stringResource(R.string.content_copy)) }
-            if (barcode) TextButton(onClick = {
-                val search = Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, payload.raw)
-                try { context.startActivity(search) } catch (_: ActivityNotFoundException) {
-                    Handoff.openInBrowser(context, "https://duckduckgo.com/?q=" + java.net.URLEncoder.encode(payload.raw, "UTF-8"))
-                }
-            }) { Text(stringResource(R.string.content_search_web)) }
-            TextButton(onClick = { val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(Intent.createChooser(i, context.getString(R.string.content_share))) } }) { Text(stringResource(R.string.content_share)) }
-            if (openUri != null) TextButton(onClick = { try { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(openUri)), context.getString(R.string.content_open))) } catch (_: ActivityNotFoundException) { android.widget.Toast.makeText(context, R.string.content_no_handler, android.widget.Toast.LENGTH_SHORT).show() } }) { Text(stringResource(R.string.content_open)) }
+        confirmButton = { Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            TextButton(onClick = { copy(context.getString(R.string.content_clip_label), payload.raw) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_copy)) }
+            if (barcode) TextButton(onClick = { Handoff.openInBrowser(context, WebSearch.url(payload.raw)) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_search_web)) }
+            TextButton(onClick = { val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(Intent.createChooser(i, context.getString(R.string.content_share))) } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_share)) }
+            if (openUri != null) TextButton(onClick = { try { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(openUri)), context.getString(R.string.content_open))) } catch (_: ActivityNotFoundException) { android.widget.Toast.makeText(context, R.string.content_no_handler, android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_open)) }
         } },
     )
 }

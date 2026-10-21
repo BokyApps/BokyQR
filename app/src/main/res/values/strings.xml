@@ -54,4 +54,6 @@
     <string name="wifi_setup_failed">Could not set up Wi-Fi: %1$s</string>
     <string name="wifi_system_error">permission or system error</string>
     <string name="wifi_connecting">Connecting to Wi-Fi</string>
+    <string name="wifi_wpa3_unsupported">WPA3 is not supported by this Android version</string>
+    <string name="wifi_unsupported_security">Unsupported Wi-Fi security type: %1$s</string>
 </resources>

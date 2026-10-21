@@ -15,6 +15,9 @@ class WifiParserTest {
         assertFalse(WifiParser.parse("WIFI:S:s;T:WPA;P:p;;")!!.hidden)
         assertEquals("quoted ssid", WifiParser.parse("WIFI:S:\"quoted ssid\";T:nopass;;")?.ssid)
         assertEquals("quoted password", WifiParser.parse("WIFI:S:s;T:WPA;P:\"quoted password\";;")?.password)
+        assertEquals("\"home\"", WifiParser.parse("WIFI:S:\\"home\\";T:nopass;;")?.ssid)
+        assertEquals("\"secret\"", WifiParser.parse("WIFI:S:s;T:WPA;P:\\"secret\\";;")?.password)
+        assertNull(WifiParser.parse("WIFI:S:cafe;T:nopass;P:unused;;")?.password)
     }
 
     @Test fun unescapesValues() {

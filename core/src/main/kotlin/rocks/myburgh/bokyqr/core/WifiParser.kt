@@ -31,8 +31,7 @@ object WifiParser {
         val ssid = fields["S"]?.takeIf { it.isNotEmpty() } ?: return null
         val security = fields["T"]?.takeIf { it.isNotEmpty() } ?: "nopass"
         val hidden = fields["H"]?.let { when (it.lowercase()) { "true" -> true; "false" -> false; else -> return null } } ?: false
-        val password = fields["P"]?.takeIf { it.isNotEmpty() }
-        if (security.equals("nopass", true) && password != null) return null
+        val password = if (security.equals("nopass", true)) null else fields["P"]?.takeIf { it.isNotEmpty() }
         if (!security.equals("nopass", true) && password == null) return null
         return WifiPayload(ssid, security, password, hidden)
     }
@@ -45,7 +44,8 @@ object WifiParser {
             }
             out.append(value[i++])
         }
+        val rawQuoted = value.length >= 2 && value.first() == '"' && value.last() == '"'
         val text = out.toString()
-        return if (text.length >= 2 && text.first() == '"' && text.last() == '"') text.substring(1, text.length - 1) else text
+        return if (rawQuoted && text.length >= 2 && text.first() == '"' && text.last() == '"') text.substring(1, text.length - 1) else text
     }
 }
