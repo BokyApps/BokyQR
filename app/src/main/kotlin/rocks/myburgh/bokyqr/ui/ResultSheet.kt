@@ -181,7 +181,11 @@ private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, co
         } },
         confirmButton = { Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
             TextButton(onClick = { copy(context.getString(R.string.content_clip_label), payload.raw) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_copy)) }
-            if (barcode) TextButton(onClick = { Handoff.openInBrowser(context, WebSearch.url(payload.raw)) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_search_web)) }
+            if (barcode) TextButton(onClick = {
+                if (!Handoff.openInBrowser(context, WebSearch.url(payload.raw))) {
+                    android.widget.Toast.makeText(context, R.string.content_search_web_failed, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_search_web)) }
             TextButton(onClick = { val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(Intent.createChooser(i, context.getString(R.string.content_share))) } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_share)) }
             if (openUri != null) TextButton(onClick = { try { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(openUri)), context.getString(R.string.content_open))) } catch (_: ActivityNotFoundException) { android.widget.Toast.makeText(context, R.string.content_no_handler, android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_open)) }
         } },

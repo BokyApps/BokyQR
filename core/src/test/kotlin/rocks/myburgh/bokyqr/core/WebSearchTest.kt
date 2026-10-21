@@ -12,4 +12,16 @@ class WebSearchTest {
         assertTrue(decision is ScanDecision.OpenableUrl)
         assertEquals("duckduckgo.com", (decision as ScanDecision.OpenableUrl).hostAscii)
     }
+
+    @Test fun multilineQueryProducesOpenableUrl() {
+        val url = WebSearch.url("first line\n\tsecond line\r\nthird")
+        val decision = PayloadPolicy.classify(url)
+        assertTrue(decision is ScanDecision.OpenableUrl)
+    }
+
+    @Test fun longQueryIsCappedToProduceOpenableUrl() {
+        val url = WebSearch.url("x".repeat(5000))
+        val decision = PayloadPolicy.classify(url)
+        assertTrue(decision is ScanDecision.OpenableUrl)
+    }
 }

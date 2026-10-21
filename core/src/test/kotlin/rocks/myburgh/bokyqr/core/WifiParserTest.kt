@@ -17,7 +17,11 @@ class WifiParserTest {
         assertEquals("quoted password", WifiParser.parse("WIFI:S:s;T:WPA;P:\"quoted password\";;")?.password)
         assertEquals("\"home\"", WifiParser.parse("""WIFI:S:\"home\";T:nopass;;""")?.ssid)
         assertEquals("\"secret\"", WifiParser.parse("""WIFI:S:s;T:WPA;P:\"secret\";;""")?.password)
-        assertNull(WifiParser.parse("WIFI:S:cafe;T:nopass;P:unused;;")?.password)
+        val explicitNoPassword = WifiParser.parse("WIFI:S:cafe;T:nopass;P:unused;;")!!
+        assertNull(explicitNoPassword.password)
+        val omittedSecurity = WifiParser.parse("WIFI:S:cafe;P:unused;;")!!
+        assertEquals("nopass", omittedSecurity.security)
+        assertNull(omittedSecurity.password)
     }
 
     @Test fun unescapesValues() {

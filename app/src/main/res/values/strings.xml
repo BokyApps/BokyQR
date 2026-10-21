@@ -42,6 +42,7 @@
     <string name="content_image_failed">Could not display this image</string>
     <string name="content_format">Format: %1$s</string>
     <string name="content_search_web">Search web</string>
+    <string name="content_search_web_failed">Could not open a web search for this value</string>
     <string name="content_binary">Binary data</string>
     <string name="content_open">Open</string>
     <string name="content_no_handler">No app can open this content.</string>
