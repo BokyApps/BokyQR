@@ -30,7 +30,7 @@ class MlKitBarcodeDecoder : BarcodeDecoder {
 
     private val scanner: BarcodeScanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
             .build(),
     )
 
@@ -59,6 +59,7 @@ class MlKitBarcodeDecoder : BarcodeDecoder {
             corners = barcode.corners(),
             imageWidth = imageWidth,
             imageHeight = imageHeight,
+            format = barcode.format.toString(),
         )
     } catch (_: Exception) {
         // Any decode failure is simply "no code in this frame"; frames keep coming.

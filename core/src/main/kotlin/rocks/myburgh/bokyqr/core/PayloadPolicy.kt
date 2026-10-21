@@ -36,6 +36,8 @@ object PayloadPolicy {
     fun classify(raw: String): ScanDecision {
         val trimmed = raw.trim()
 
+        WifiParser.parse(trimmed)?.let { return ScanDecision.Wifi(it) }
+
         if (trimmed.isEmpty()) return ScanDecision.DisplayOnly(raw, DisplayReason.BLANK)
 
         // Passkey first: the pattern already excludes whitespace and control characters.

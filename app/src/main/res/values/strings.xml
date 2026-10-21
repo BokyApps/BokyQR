@@ -16,4 +16,9 @@
     <string name="gallery_unreadable">That image could not be read.</string>
     <string name="gallery_no_code">No QR code was found in that image.</string>
     <string name="gallery_disabled">Gallery import is turned off in Settings.</string>
+    <string name="wifi_title">WiFi network</string>
+    <string name="wifi_connect">Connect</string>
+    <string name="wifi_copy_password">Copy password</string>
+    <string name="content_copy">Copy</string>
+    <string name="content_share">Share</string>
 </resources>

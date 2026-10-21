@@ -28,6 +28,10 @@ sealed interface ScanDecision {
      */
     data class Passkey(val fidoUri: String) : ScanDecision
 
+    data class Wifi(val payload: WifiPayload) : ScanDecision
+
+    data class Content(val payload: ClassifiedPayload) : ScanDecision
+
     /**
      * Inert text. [text] is the raw payload and [reason] explains why nothing was launched.
      */

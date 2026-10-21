@@ -10,7 +10,9 @@ import com.google.zxing.LuminanceSource
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
-import com.google.zxing.qrcode.QRCodeReader
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.Reader
+import com.google.zxing.BarcodeFormat
 
 /**
  * Flavor factory for the fdroid build. ZXing only: no ML Kit, no Play Services, no Firebase, no
@@ -25,11 +27,11 @@ class ZxingBarcodeDecoder : BarcodeDecoder {
      * binarizer's bit matrix between calls. One reader per calling thread, each guarded, so the
      * analyzer executor and the gallery decode can never interleave inside one instance.
      */
-    private val frameReader = QRCodeReader()
+    private val frameReader = MultiFormatReader()
     private val frameLock = Any()
-    private val stillReader = QRCodeReader()
+    private val stillReader = MultiFormatReader()
     private val stillLock = Any()
-    private val hints: Map<DecodeHintType, Any> = mapOf(DecodeHintType.TRY_HARDER to true)
+    private val hints: Map<DecodeHintType, Any> = mapOf(DecodeHintType.TRY_HARDER to true, DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93, BarcodeFormat.ITF, BarcodeFormat.CODABAR, BarcodeFormat.DATA_MATRIX, BarcodeFormat.PDF_417, BarcodeFormat.AZTEC))
 
     override fun decodeFrame(image: ImageProxy): DecodedQr? {
         val source = yuvLuminance(image) ?: return null
@@ -54,7 +56,7 @@ class ZxingBarcodeDecoder : BarcodeDecoder {
         source: LuminanceSource,
         imageWidth: Int,
         imageHeight: Int,
-        reader: QRCodeReader,
+        reader: Reader,
         lock: Any,
     ): DecodedQr? {
         synchronized(lock) {
@@ -65,6 +67,7 @@ class ZxingBarcodeDecoder : BarcodeDecoder {
                     corners = result.resultPoints?.map { PointF(it.x, it.y) }.orEmpty(),
                     imageWidth = imageWidth,
                     imageHeight = imageHeight,
+                    format = result.barcodeFormat.name,
                 )
             } catch (_: Exception) {
                 null

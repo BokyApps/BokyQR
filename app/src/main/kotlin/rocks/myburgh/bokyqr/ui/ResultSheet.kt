@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import rocks.myburgh.bokyqr.core.DisplayReason
 import rocks.myburgh.bokyqr.core.PayloadPolicy
@@ -79,10 +80,40 @@ fun ResultSheet(
                 is ScanDecision.OpenableUrl ->
                     OpenableUrlBody(decision, viewModel, context, copy, onOpenSettings)
                 is ScanDecision.Passkey -> PasskeyBody(decision, context, copy)
-                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, copy)
+                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, context, copy)
+                is ScanDecision.Wifi -> WifiBody(decision, context, copy)
+                is ScanDecision.Content -> ContentBody(decision.payload, context, copy)
             }
         }
     }
+}
+
+@Composable
+private fun WifiBody(decision: ScanDecision.Wifi, context: Context, copy: (String, String) -> Unit) {
+    var reveal by remember { mutableStateOf(false) }
+    val wifi = decision.payload
+    Text("WiFi network", style = MaterialTheme.typography.titleMedium)
+    Text("SSID: ${wifi.ssid}")
+    Text("Security: ${wifi.security}")
+    wifi.password?.let { Text("Password: ${if (reveal) it else "••••••••"}") }
+    TextButton(onClick = { reveal = !reveal }) { Text(if (reveal) "Hide password" else "Reveal password") }
+    wifi.password?.let { OutlinedButton(onClick = { copy("WiFi password", it) }, modifier = Modifier.fillMaxWidth()) { Text("Copy password") } }
+    Button(onClick = {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
+        runCatching { context.startActivity(intent) }
+    }, modifier = Modifier.fillMaxWidth()) { Text("Connect / open Wi-Fi settings") }
+}
+
+@Composable
+private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, context: Context, copy: (String, String) -> Unit) {
+    val text = if (payload.kind == rocks.myburgh.bokyqr.core.PayloadKind.BINARY) payload.raw.take(2048).toByteArray().joinToString(" ") { "%02x".format(it) } else payload.raw
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text(payload.kind.name.lowercase().replaceFirstChar { it.uppercase() }) },
+        text = { androidx.compose.foundation.text.selection.SelectionContainer { Text(text, fontFamily = FontFamily.Monospace, overflow = TextOverflow.Clip) } },
+        confirmButton = { TextButton(onClick = { copy("Scanned content", payload.raw) }) { Text("Copy") } },
+        dismissButton = { TextButton(onClick = { val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(android.content.Intent.createChooser(i, "Share")) } }) { Text("Share") } },
+    )
 }
 
 @Composable
@@ -401,17 +432,11 @@ private fun PasskeyBody(
 @Composable
 private fun DisplayOnlyBody(
     decision: ScanDecision.DisplayOnly,
+    context: Context,
     copy: (String, String) -> Unit,
 ) {
-    Text("Text", style = MaterialTheme.typography.titleMedium)
-    Text(decision.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
     Text(reasonText(decision.reason), style = MaterialTheme.typography.bodySmall)
-    OutlinedButton(
-        onClick = { copy("Scanned text", decision.text) },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text("Copy")
-    }
+    ContentBody(rocks.myburgh.bokyqr.core.PayloadClassifier.classify(decision.text), context, copy)
 }
 
 private fun reasonText(reason: DisplayReason): String = when (reason) {
