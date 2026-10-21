@@ -19,6 +19,7 @@ data class DecodedQr(
     val corners: List<PointF>,
     val imageWidth: Int,
     val imageHeight: Int,
+    val format: String = "QR_CODE",
 )
 
 /**

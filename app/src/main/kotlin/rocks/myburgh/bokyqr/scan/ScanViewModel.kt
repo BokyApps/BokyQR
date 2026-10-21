@@ -53,6 +53,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     var decision: ScanDecision? by mutableStateOf(null)
         private set
 
+    var format: String by mutableStateOf("QR_CODE")
+        private set
+
     /** True while the result sheet is up, which is exactly when the analyzer is paused. */
     var sheetVisible: Boolean by mutableStateOf(false)
         private set
@@ -72,7 +75,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
      * provider coroutines. Every one of those sets [decision] and the provider states, which are
      * Compose state, so this hops to the main thread and does nothing else there.
      */
-    fun onPayload(raw: String) = viewModelScope.launch {
+    fun onPayload(raw: String, format: String = "QR_CODE") = viewModelScope.launch {
+        this@ScanViewModel.format = format
         decision = PayloadPolicy.classify(raw)
         cancelProviders()
         virusTotalState = ProviderState.Idle

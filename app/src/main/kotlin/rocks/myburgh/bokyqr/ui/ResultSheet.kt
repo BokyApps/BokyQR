@@ -1,16 +1,23 @@
 package rocks.myburgh.bokyqr.ui
 
 import android.content.Context
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.util.Base64
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -20,27 +27,38 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import rocks.myburgh.bokyqr.core.DisplayReason
+import rocks.myburgh.bokyqr.core.BarcodeFormats
+import rocks.myburgh.bokyqr.core.HexDump
 import rocks.myburgh.bokyqr.core.PayloadPolicy
 import rocks.myburgh.bokyqr.core.ScanDecision
+import rocks.myburgh.bokyqr.core.WebSearch
 import rocks.myburgh.bokyqr.core.confirmBeforeOpen
 import rocks.myburgh.bokyqr.data.Settings
 import rocks.myburgh.bokyqr.handoff.Handoff
 import rocks.myburgh.bokyqr.net.ProviderOutcome
 import rocks.myburgh.bokyqr.scan.ProviderState
 import rocks.myburgh.bokyqr.scan.ScanViewModel
+import rocks.myburgh.bokyqr.wifi.WifiConnector
+import rocks.myburgh.bokyqr.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The result sheet. It shows what `:core` decided and offers only the actions that decision allows.
@@ -66,7 +84,13 @@ fun ResultSheet(
 
     SecureWindow()
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    if (decision is ScanDecision.DisplayOnly || decision is ScanDecision.Content) {
+        when (decision) {
+            is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, context, copy, onDismiss, viewModel.format)
+            is ScanDecision.Content -> ContentBody(decision.payload, context, copy, onDismiss, format = viewModel.format)
+            else -> Unit
+        }
+    } else ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -79,10 +103,93 @@ fun ResultSheet(
                 is ScanDecision.OpenableUrl ->
                     OpenableUrlBody(decision, viewModel, context, copy, onOpenSettings)
                 is ScanDecision.Passkey -> PasskeyBody(decision, context, copy)
-                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, copy)
+                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, context, copy, onDismiss, viewModel.format)
+                is ScanDecision.Wifi -> WifiBody(decision, context, copy)
+                is ScanDecision.Content -> ContentBody(decision.payload, context, copy, onDismiss, format = viewModel.format)
             }
         }
     }
+}
+
+@Composable
+private fun WifiBody(decision: ScanDecision.Wifi, context: Context, copy: (String, String) -> Unit) {
+    var reveal by remember { mutableStateOf(false) }
+    val wifi = decision.payload
+    val security = when (wifi.security.uppercase()) {
+        "WPA", "WPA2", "WPA/WPA2" -> stringResource(R.string.wifi_security_wpa)
+        "WPA3", "SAE" -> stringResource(R.string.wifi_security_wpa3)
+        "WEP" -> stringResource(R.string.wifi_security_wep)
+        "NOPASS", "OPEN" -> stringResource(R.string.wifi_security_open)
+        else -> wifi.security
+    }
+    Text(stringResource(R.string.wifi_title), style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.wifi_ssid, wifi.ssid))
+    Text(stringResource(R.string.wifi_security, security))
+    if (wifi.hidden) Text(stringResource(R.string.wifi_hidden))
+    wifi.password?.let { Text(stringResource(R.string.wifi_password, if (reveal) it else "••••••••")) }
+    wifi.password?.let { TextButton(onClick = { reveal = !reveal }) { Text(stringResource(if (reveal) R.string.wifi_hide_password else R.string.wifi_show_password)) } }
+    wifi.password?.let { OutlinedButton(onClick = { copy(context.getString(R.string.wifi_password_clip_label), it) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.wifi_copy_password)) } }
+    Button(onClick = { WifiConnector.connect(context, wifi) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.wifi_connect)) }
+}
+
+@Composable
+private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, context: Context, copy: (String, String) -> Unit, onDismiss: () -> Unit, refusal: String? = null, format: String = "QR_CODE") {
+    val barcode = !BarcodeFormats.isQr(format)
+    val isImage = payload.kind == rocks.myburgh.bokyqr.core.PayloadKind.IMAGE
+    val decoded = produceState<Result<android.graphics.Bitmap>?>(initialValue = null, payload.raw) {
+        value = if (!isImage) null else withContext(Dispatchers.Default) { runCatching {
+            val encoded = payload.raw.substringAfter(',', "")
+            val bytes = Base64.decode(encoded, Base64.DEFAULT)
+            require(bytes.size <= 1_000_000)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            require(bounds.outWidth > 0 && bounds.outHeight > 0)
+            var sample = 1
+            while ((maxOf(bounds.outWidth, bounds.outHeight) + sample - 1) / sample > 2048) sample *= 2
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: error("decode failed")
+        } }
+    }
+    val image = decoded.value?.getOrNull()
+    val text = when {
+        isImage -> payload.raw.take(200) + "…"
+        payload.kind == rocks.myburgh.bokyqr.core.PayloadKind.BINARY -> HexDump.format(payload.raw.toByteArray(Charsets.ISO_8859_1))
+        else -> payload.raw
+    }
+    val title = if (barcode) BarcodeFormats.displayName(format) else stringResource(when (payload.kind) {
+        rocks.myburgh.bokyqr.core.PayloadKind.VCARD -> R.string.content_contact
+        rocks.myburgh.bokyqr.core.PayloadKind.EMAIL -> R.string.content_email
+        rocks.myburgh.bokyqr.core.PayloadKind.SMS -> R.string.content_sms
+        rocks.myburgh.bokyqr.core.PayloadKind.TELEPHONE -> R.string.content_phone
+        rocks.myburgh.bokyqr.core.PayloadKind.GEO -> R.string.content_location
+        rocks.myburgh.bokyqr.core.PayloadKind.CALENDAR -> R.string.content_calendar
+        rocks.myburgh.bokyqr.core.PayloadKind.IMAGE -> R.string.content_image
+        rocks.myburgh.bokyqr.core.PayloadKind.BINARY -> R.string.content_binary
+        else -> R.string.content_text
+    })
+    val openUri = payload.raw.trimStart().takeIf { raw -> listOf("tel:", "mailto:", "sms:", "smsto:", "geo:").any { raw.startsWith(it, true) } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            refusal?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (isImage && decoded.value == null) CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            if (isImage && decoded.value?.isFailure == true) Text(stringResource(R.string.content_image_failed))
+            image?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = stringResource(R.string.content_image), modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) }
+            if (barcode) Text(stringResource(R.string.content_format, BarcodeFormats.displayName(format)))
+            Text(text, fontFamily = FontFamily.Monospace, overflow = TextOverflow.Clip, modifier = Modifier.verticalScroll(rememberScrollState()))
+        } },
+        confirmButton = { Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            TextButton(onClick = { copy(context.getString(R.string.content_clip_label), payload.raw) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_copy)) }
+            if (barcode) TextButton(onClick = {
+                if (!Handoff.openInBrowser(context, WebSearch.url(payload.raw))) {
+                    android.widget.Toast.makeText(context, R.string.content_search_web_failed, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_search_web)) }
+            TextButton(onClick = { val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(Intent.createChooser(i, context.getString(R.string.content_share))) } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_share)) }
+            if (openUri != null) TextButton(onClick = { try { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(openUri)), context.getString(R.string.content_open))) } catch (_: ActivityNotFoundException) { android.widget.Toast.makeText(context, R.string.content_no_handler, android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.content_open)) }
+        } },
+    )
 }
 
 @Composable
@@ -401,17 +508,12 @@ private fun PasskeyBody(
 @Composable
 private fun DisplayOnlyBody(
     decision: ScanDecision.DisplayOnly,
+    context: Context,
     copy: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+    format: String,
 ) {
-    Text("Text", style = MaterialTheme.typography.titleMedium)
-    Text(decision.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-    Text(reasonText(decision.reason), style = MaterialTheme.typography.bodySmall)
-    OutlinedButton(
-        onClick = { copy("Scanned text", decision.text) },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text("Copy")
-    }
+    ContentBody(rocks.myburgh.bokyqr.core.PayloadClassifier.classify(decision.text), context, copy, onDismiss, reasonText(decision.reason), format)
 }
 
 private fun reasonText(reason: DisplayReason): String = when (reason) {

@@ -6,6 +6,8 @@ Point the camera at a QR code, get the payload back, and read it. Only two thing
 launched, and both are ones you tap deliberately. Everything else is shown to you as inert text
 with a copy button.
 
+Scans include WiFi credentials and common 1D/2D barcode formats. Non-URL content can be copied or shared from the result dialog; WiFi connection is always user initiated.
+
 ## Bring your own key
 
 **No key ships with this app.** Reputation lookups (VirusTotal, urlscan.io, URLhaus) are

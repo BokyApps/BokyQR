@@ -6,7 +6,7 @@ import org.junit.Test
 
 /**
  * The refuse list. Every one of these must stay inert text: the app never dials, never joins a
- * Wi-Fi network, never adds a contact, never opens a map, never launches a package and never
+ * Wi-Fi network without an explicit tap, never adds a contact, never opens a map, never launches a package and never
  * renders anything as HTML.
  */
 class ClassifyForeignSchemeTest {
@@ -56,8 +56,8 @@ class ClassifyForeignSchemeTest {
     }
 
     @Test
-    fun `wifi is display only`() {
-        assertEquals(DisplayReason.FOREIGN_SCHEME, displayOnly("WIFI:T:WPA;S:cafe;P:secret;;").reason)
+    fun `wifi requires explicit connect action`() {
+        assertTrue(PayloadPolicy.classify("WIFI:T:WPA;S:cafe;P:secret;;") is ScanDecision.Wifi)
     }
 
     @Test
@@ -93,7 +93,7 @@ class ClassifyForeignSchemeTest {
 
     @Test
     fun `display only keeps the exact scanned text`() {
-        val raw = "WIFI:T:WPA;S:cafe;P:secret;;"
+        val raw = "hello payload"
         assertEquals(raw, displayOnly(raw).text)
     }
 }

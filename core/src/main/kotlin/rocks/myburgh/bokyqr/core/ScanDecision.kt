@@ -3,7 +3,7 @@ package rocks.myburgh.bokyqr.core
 /**
  * The only thing the app is ever allowed to do with a scanned payload is act on one of these
  * three outcomes. Anything that is not an [OpenableUrl] or a [Passkey] is [DisplayOnly]:
- * shown as inert text with a copy button, never launched, never dialled, never connected to.
+ * shown as content; WiFi connects only after an explicit user tap.
  */
 sealed interface ScanDecision {
 
@@ -27,6 +27,10 @@ sealed interface ScanDecision {
      * it hands the URI to whatever already handles the FIDO scheme on the device.
      */
     data class Passkey(val fidoUri: String) : ScanDecision
+
+    data class Wifi(val payload: WifiPayload) : ScanDecision
+
+    data class Content(val payload: ClassifiedPayload) : ScanDecision
 
     /**
      * Inert text. [text] is the raw payload and [reason] explains why nothing was launched.
