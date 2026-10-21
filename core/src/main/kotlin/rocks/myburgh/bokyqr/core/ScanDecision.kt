@@ -3,7 +3,7 @@ package rocks.myburgh.bokyqr.core
 /**
  * The only thing the app is ever allowed to do with a scanned payload is act on one of these
  * three outcomes. Anything that is not an [OpenableUrl] or a [Passkey] is [DisplayOnly]:
- * shown as inert text with a copy button, never launched, never dialled, never connected to.
+ * shown as content; WiFi connects only after an explicit user tap.
  */
 sealed interface ScanDecision {
 

@@ -9,7 +9,7 @@ import java.net.URISyntaxException
  *
  * The rule this object exists to enforce: a scanned QR is *data*, never an instruction. The
  * only payloads that may ever be launched are an http/https URL that passes every check below,
- * and a FIDO URI. Everything else is text on a screen with a copy button.
+ * and a FIDO URI. WiFi actions require an explicit user tap.
  */
 object PayloadPolicy {
 
@@ -36,9 +36,8 @@ object PayloadPolicy {
     fun classify(raw: String): ScanDecision {
         val trimmed = raw.trim()
 
-        WifiParser.parse(trimmed)?.let { return ScanDecision.Wifi(it) }
-
         if (trimmed.isEmpty()) return ScanDecision.DisplayOnly(raw, DisplayReason.BLANK)
+        WifiParser.parse(trimmed)?.let { return ScanDecision.Wifi(it) }
 
         // Passkey first: the pattern already excludes whitespace and control characters.
         normalizePasskey(trimmed)?.let { return ScanDecision.Passkey(it) }
