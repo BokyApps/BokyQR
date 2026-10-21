@@ -9,28 +9,29 @@ import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import rocks.myburgh.bokyqr.R
 import rocks.myburgh.bokyqr.core.WifiPayload
 
 object WifiConnector {
     fun connect(context: Context, network: WifiPayload) {
         try {
             if (Build.VERSION.SDK_INT >= 29 && network.security.equals("WEP", true)) {
-                Toast.makeText(context, "WEP is not supported here. Copy the password, then connect in Wi-Fi settings.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, R.string.wifi_wep_settings, Toast.LENGTH_LONG).show()
                 context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
                 return
             }
             val suggestion = suggestion(network)
             if (Build.VERSION.SDK_INT >= 30) {
-                context.startActivity(Intent(Settings.ACTION_WIFI_ADD_NETWORKS).putParcelableArrayListExtra(Settings.EXTRA_WIFI_NETWORK_LIST, arrayListOf(suggestion)))
+                context.startActivity(Intent(Settings.ACTION_WIFI_ADD_NETWORKS).putParcelableArrayListExtra(Settings.EXTRA_WIFI_NETWORK_LIST, arrayListOf(suggestion.build())))
             } else if (Build.VERSION.SDK_INT == 29) {
                 val manager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                val status = manager.addNetworkSuggestions(listOf(suggestion))
-                Toast.makeText(context, if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) "Network suggested; Android will connect when in range" else "Android rejected the network suggestion ($status).", Toast.LENGTH_LONG).show()
+                val status = manager.addNetworkSuggestions(listOf(suggestion.build()))
+                Toast.makeText(context, if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) context.getString(R.string.wifi_suggested) else context.getString(R.string.wifi_suggestion_rejected, status), Toast.LENGTH_LONG).show()
             } else legacy(context, network)
         } catch (e: ActivityNotFoundException) {
-            Toast.makeText(context, "Wi-Fi setup is unavailable on this device.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, R.string.wifi_unavailable, Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
-            Toast.makeText(context, "Could not set up Wi-Fi: ${e.message ?: "permission or system error"}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, context.getString(R.string.wifi_setup_failed, e.message ?: context.getString(R.string.wifi_system_error)), Toast.LENGTH_LONG).show()
         }
     }
     private fun suggestion(n: WifiPayload): WifiNetworkSuggestion.Builder {
@@ -49,12 +50,12 @@ object WifiConnector {
             SSID = "\"${n.ssid}\""; hiddenSSID = n.hidden
             when (n.security.uppercase()) {
                 "NOPASS", "OPEN" -> allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE)
-                "WEP" -> { wepKeys[0] = "\"${n.password.orEmpty()}\""; allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE); groupCiphers.set(WifiConfiguration.GroupCipher.WEP40); groupCiphers.set(WifiConfiguration.GroupCipher.WEP104) }
+                "WEP" -> { wepKeys[0] = "\"${n.password.orEmpty()}\""; allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE); allowedGroupCiphers.set(WifiConfiguration.GroupCipher.WEP40); allowedGroupCiphers.set(WifiConfiguration.GroupCipher.WEP104) }
                 else -> { preSharedKey = "\"${n.password.orEmpty()}\""; allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK) }
             }
         }
         val id = manager.addNetwork(c)
         check(id >= 0 && manager.enableNetwork(id, true) && manager.reconnect()) { "Android could not connect" }
-        Toast.makeText(context, "Connecting to Wi-Fi", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, R.string.wifi_connecting, Toast.LENGTH_LONG).show()
     }
 }

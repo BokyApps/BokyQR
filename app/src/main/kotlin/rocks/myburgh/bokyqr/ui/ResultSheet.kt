@@ -1,6 +1,9 @@
 package rocks.myburgh.bokyqr.ui
 
 import android.content.Context
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +46,8 @@ import rocks.myburgh.bokyqr.handoff.Handoff
 import rocks.myburgh.bokyqr.net.ProviderOutcome
 import rocks.myburgh.bokyqr.scan.ProviderState
 import rocks.myburgh.bokyqr.scan.ScanViewModel
+import rocks.myburgh.bokyqr.wifi.WifiConnector
+import rocks.myburgh.bokyqr.R
 
 /**
  * The result sheet. It shows what `:core` decided and offers only the actions that decision allows.
@@ -80,9 +86,9 @@ fun ResultSheet(
                 is ScanDecision.OpenableUrl ->
                     OpenableUrlBody(decision, viewModel, context, copy, onOpenSettings)
                 is ScanDecision.Passkey -> PasskeyBody(decision, context, copy)
-                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, context, copy)
+                is ScanDecision.DisplayOnly -> DisplayOnlyBody(decision, context, copy, onDismiss)
                 is ScanDecision.Wifi -> WifiBody(decision, context, copy)
-                is ScanDecision.Content -> ContentBody(decision.payload, context, copy)
+                is ScanDecision.Content -> ContentBody(decision.payload, context, copy, onDismiss)
             }
         }
     }
@@ -92,27 +98,50 @@ fun ResultSheet(
 private fun WifiBody(decision: ScanDecision.Wifi, context: Context, copy: (String, String) -> Unit) {
     var reveal by remember { mutableStateOf(false) }
     val wifi = decision.payload
-    Text("WiFi network", style = MaterialTheme.typography.titleMedium)
-    Text("SSID: ${wifi.ssid}")
-    Text("Security: ${wifi.security}")
-    wifi.password?.let { Text("Password: ${if (reveal) it else "••••••••"}") }
-    TextButton(onClick = { reveal = !reveal }) { Text(if (reveal) "Hide password" else "Reveal password") }
-    wifi.password?.let { OutlinedButton(onClick = { copy("WiFi password", it) }, modifier = Modifier.fillMaxWidth()) { Text("Copy password") } }
-    Button(onClick = {
-        val intent = android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
-        runCatching { context.startActivity(intent) }
-    }, modifier = Modifier.fillMaxWidth()) { Text("Connect / open Wi-Fi settings") }
+    val security = when (wifi.security.uppercase()) {
+        "WPA", "WPA2", "WPA/WPA2" -> stringResource(R.string.wifi_security_wpa)
+        "WPA3", "SAE" -> stringResource(R.string.wifi_security_wpa3)
+        "WEP" -> stringResource(R.string.wifi_security_wep)
+        "NOPASS", "OPEN" -> stringResource(R.string.wifi_security_open)
+        else -> wifi.security
+    }
+    Text(stringResource(R.string.wifi_title), style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.wifi_ssid, wifi.ssid))
+    Text(stringResource(R.string.wifi_security, security))
+    if (wifi.hidden) Text(stringResource(R.string.wifi_hidden))
+    wifi.password?.let { Text(stringResource(R.string.wifi_password, if (reveal) it else "••••••••")) }
+    wifi.password?.let { TextButton(onClick = { reveal = !reveal }) { Text(stringResource(if (reveal) R.string.wifi_hide_password else R.string.wifi_show_password)) } }
+    wifi.password?.let { OutlinedButton(onClick = { copy(context.getString(R.string.wifi_password_clip_label), it) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.wifi_copy_password)) } }
+    Button(onClick = { WifiConnector.connect(context, wifi) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.wifi_connect)) }
 }
 
 @Composable
-private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, context: Context, copy: (String, String) -> Unit) {
+private fun ContentBody(payload: rocks.myburgh.bokyqr.core.ClassifiedPayload, context: Context, copy: (String, String) -> Unit, onDismiss: () -> Unit, refusal: String? = null) {
     val text = if (payload.kind == rocks.myburgh.bokyqr.core.PayloadKind.BINARY) payload.raw.take(2048).toByteArray().joinToString(" ") { "%02x".format(it) } else payload.raw
+    val title = stringResource(when (payload.kind) {
+        rocks.myburgh.bokyqr.core.PayloadKind.VCARD -> R.string.content_contact
+        rocks.myburgh.bokyqr.core.PayloadKind.EMAIL -> R.string.content_email
+        rocks.myburgh.bokyqr.core.PayloadKind.SMS -> R.string.content_sms
+        rocks.myburgh.bokyqr.core.PayloadKind.TELEPHONE -> R.string.content_phone
+        rocks.myburgh.bokyqr.core.PayloadKind.GEO -> R.string.content_location
+        rocks.myburgh.bokyqr.core.PayloadKind.CALENDAR -> R.string.content_calendar
+        rocks.myburgh.bokyqr.core.PayloadKind.IMAGE -> R.string.content_image
+        rocks.myburgh.bokyqr.core.PayloadKind.BINARY -> R.string.content_binary
+        else -> R.string.content_text
+    })
+    val openUri = payload.raw.trimStart().takeIf { raw -> listOf("tel:", "mailto:", "sms:", "smsto:", "geo:").any { raw.startsWith(it, true) } }
     AlertDialog(
-        onDismissRequest = {},
-        title = { Text(payload.kind.name.lowercase().replaceFirstChar { it.uppercase() }) },
-        text = { androidx.compose.foundation.text.selection.SelectionContainer { Text(text, fontFamily = FontFamily.Monospace, overflow = TextOverflow.Clip) } },
-        confirmButton = { TextButton(onClick = { copy("Scanned content", payload.raw) }) { Text("Copy") } },
-        dismissButton = { TextButton(onClick = { val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(android.content.Intent.createChooser(i, "Share")) } }) { Text("Share") } },
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            refusal?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            androidx.compose.foundation.text.selection.SelectionContainer { Text(text, fontFamily = FontFamily.Monospace, overflow = TextOverflow.Clip, modifier = Modifier.verticalScroll(rememberScrollState())) }
+        } },
+        confirmButton = { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { copy(context.getString(R.string.content_clip_label), payload.raw) }) { Text(stringResource(R.string.content_copy)) }
+            TextButton(onClick = { val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, payload.raw); runCatching { context.startActivity(Intent.createChooser(i, context.getString(R.string.content_share))) } }) { Text(stringResource(R.string.content_share)) }
+            if (openUri != null) TextButton(onClick = { try { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(openUri)), context.getString(R.string.content_open))) } catch (_: ActivityNotFoundException) { android.widget.Toast.makeText(context, R.string.content_no_handler, android.widget.Toast.LENGTH_SHORT).show() } }) { Text(stringResource(R.string.content_open)) }
+        } },
     )
 }
 
@@ -434,9 +463,9 @@ private fun DisplayOnlyBody(
     decision: ScanDecision.DisplayOnly,
     context: Context,
     copy: (String, String) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    Text(reasonText(decision.reason), style = MaterialTheme.typography.bodySmall)
-    ContentBody(rocks.myburgh.bokyqr.core.PayloadClassifier.classify(decision.text), context, copy)
+    ContentBody(rocks.myburgh.bokyqr.core.PayloadClassifier.classify(decision.text), context, copy, onDismiss, reasonText(decision.reason))
 }
 
 private fun reasonText(reason: DisplayReason): String = when (reason) {
