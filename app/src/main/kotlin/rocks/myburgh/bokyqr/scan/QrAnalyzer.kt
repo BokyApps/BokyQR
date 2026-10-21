@@ -22,7 +22,7 @@ import rocks.myburgh.bokyqr.scanner.DecodedQr
  * not decoded.
  */
 class QrAnalyzer(
-    private val onPayload: (String) -> Unit,
+    private val onPayload: (DecodedQr) -> Unit,
     private val onFrameDecoded: (DecodedQr?) -> Unit = {},
 ) : ImageAnalysis.Analyzer {
 
@@ -52,7 +52,7 @@ class QrAnalyzer(
             // follow the code and disappear when it leaves the frame.
             if (payload != null && payload != lastPayload) {
                 lastPayload = payload
-                onPayload(payload)
+                onPayload(decoded)
             }
             onFrameDecoded(decoded)
         } catch (_: Exception) {

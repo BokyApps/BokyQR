@@ -4,17 +4,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PayloadClassifierTest {
-    @Test fun classifiesPayloadKinds() {
-        assertEquals(PayloadKind.URL, PayloadClassifier.classify("https://example.com").kind)
-        assertEquals(PayloadKind.TEXT, PayloadClassifier.classify("hello").kind)
-        assertEquals(PayloadKind.WIFI, PayloadClassifier.classify("WIFI:S:a;T:nopass;;").kind)
-        assertEquals(PayloadKind.VCARD, PayloadClassifier.classify("BEGIN:VCARD\nEND:VCARD").kind)
-        assertEquals(PayloadKind.EMAIL, PayloadClassifier.classify("mailto:a@example.com").kind)
-        assertEquals(PayloadKind.SMS, PayloadClassifier.classify("sms:123").kind)
-        assertEquals(PayloadKind.TELEPHONE, PayloadClassifier.classify("tel:123").kind)
-        assertEquals(PayloadKind.GEO, PayloadClassifier.classify("geo:1,2").kind)
-        assertEquals(PayloadKind.CALENDAR, PayloadClassifier.classify("BEGIN:VEVENT\nEND:VEVENT").kind)
-        assertEquals(PayloadKind.IMAGE, PayloadClassifier.classify("data:image/png;base64,aGVsbG8=").kind)
-        assertEquals(PayloadKind.BINARY, PayloadClassifier.classify("a\u0000b").kind)
+    @Test fun classifiesAllPayloadKinds() {
+        fun kind(raw: String) = PayloadClassifier.classify(raw).kind
+        assertEquals(PayloadKind.URL, kind("https://example.com"))
+        assertEquals(PayloadKind.URL, kind("http://example.com"))
+        assertEquals(PayloadKind.WIFI, kind("WIFI:S:a;T:nopass;;"))
+        assertEquals(PayloadKind.VCARD, kind("BEGIN:VCARD\nEND:VCARD"))
+        assertEquals(PayloadKind.VCARD, kind("MECARD:N:a;;"))
+        assertEquals(PayloadKind.EMAIL, kind("mailto:a@example.com"))
+        assertEquals(PayloadKind.EMAIL, kind("MATMSG:TO:a@example.com;"))
+        assertEquals(PayloadKind.SMS, kind("sms:123"))
+        assertEquals(PayloadKind.SMS, kind("SMSTO:123:hello"))
+        assertEquals(PayloadKind.TELEPHONE, kind("tel:123"))
+        assertEquals(PayloadKind.GEO, kind("geo:1,2"))
+        assertEquals(PayloadKind.CALENDAR, kind("BEGIN:VEVENT\nEND:VEVENT"))
+        assertEquals(PayloadKind.IMAGE, kind("data:image/png;base64,aGVsbG8="))
+        assertEquals(PayloadKind.BINARY, kind("a\u0000b"))
+        assertEquals(PayloadKind.TEXT, kind("hello"))
     }
 }

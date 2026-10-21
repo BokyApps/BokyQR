@@ -150,7 +150,7 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val analyzer = remember {
         QrAnalyzer(
-            onPayload = { payload -> viewModel.onPayload(payload) },
+            onPayload = { decoded -> viewModel.onPayload(decoded.payload, decoded.format) },
             onFrameDecoded = { decoded ->
                 mainHandler.post {
                     // A stale frame that raced the sheet opening is dropped: while the sheet is
@@ -306,7 +306,7 @@ fun CameraScreen(viewModel: ScanViewModel, onOpenSettings: () -> Unit) {
             if (payload == null) {
                 viewModel.showNotice(galleryNoCodeMessage)
             } else {
-                viewModel.onPayload(payload)
+                viewModel.onPayload(payload, decoded.format)
             }
         }
     }
